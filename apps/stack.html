@@ -6,10 +6,11 @@
 <title>Spring Stack Report</title>
 <meta name="description" content="Point it at a Spring project — a GitHub repository or a folder of yours — and see what it runs on, what blocks the next upgrade, what is vulnerable and what is misconfigured, every finding linked to its line and kept in a debt inbox you work through.">
 <link rel="stylesheet" href="/api/v1/apps-runtime/v1/theme.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg viewBox='0 0 24 24' width='30' height='30' aria-label='Spring' role='img'%3E%3Cpath fill='%236db33f' d='M21.8537 1.4158a10.4504 10.4504 0 0 1-1.284 2.2471A11.9666 11.9666 0 1 0 3.8518 20.7757l.4445.3951a11.9543 11.9543 0 0 0 19.6316-8.2971c.3457-3.0126-.568-6.8649-2.0743-11.458zM5.5805 20.8745a1.0174 1.0174 0 1 1-.1482-1.4323 1.0396 1.0396 0 0 1 .1482 1.4323zm16.1991-3.5806c-2.9385 3.9263-9.2601 2.5928-13.2852 2.7904 0 0-.7161.0494-1.4323.1481 0 0 .2717-.1234.6174-.2469 2.8398-.9877 4.1732-1.1853 5.9018-2.0743 3.2349-1.6545 6.4698-5.2844 7.1118-9.0379-1.2347 3.6053-4.9881 6.7167-8.3959 7.9761-2.3459.8643-6.5685 1.7039-6.5685 1.7039l-.1729-.0988c-2.8645-1.4076-2.9632-7.6304 2.2718-9.6306 2.2966-.889 4.4696-.395 6.9637-.9877 2.6422-.6174 5.7043-2.5929 6.939-5.1857 1.3828 4.1732 3.062 10.643.0493 14.6434z'/%3E%3C/svg%3E">
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -20,7 +21,7 @@
   .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
   .wrap{max-width:1180px;margin:0 auto;padding:22px 20px}
   header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--green),#3d7a1f);display:grid;place-items:center;font-weight:800;color:#0b0d10}
+  .logo{width:38px;height:38px;display:grid;place-items:center}
   h1{font-size:20px;margin:0;font-weight:700} .sub{color:var(--dim);font-size:13px}
   .search{display:flex;gap:8px;margin:18px 0 8px;flex-wrap:wrap}
   .search input{flex:1;min-width:280px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 14px;font-size:14px}
@@ -36,8 +37,15 @@
   .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
   .p-supported{background:#1f3a14;color:var(--green2)} .p-commercial-only{background:#3a2a10;color:var(--amber)}
   .p-unsupported{background:#3a1515;color:var(--red)} .p-upcoming,.p-unknown{background:#1b2533;color:var(--blue)}
-  .progress{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px} .step{font-size:12px;color:var(--dim);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 10px}
-  .step.done{color:var(--green2);border-color:#2b4a1c} .step.fail{color:var(--red);border-color:#4a1f1f} .step.run{color:var(--amber)}
+  .progress{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px;margin:6px 0 14px}
+  .bar{height:6px;background:var(--surface2);border-radius:99px;overflow:hidden;margin:6px 0 10px} .bar i{display:block;height:100%;width:0;background:var(--green);transition:width .4s}
+  .ptop{display:flex;justify-content:space-between;font-size:13px} .ptop b{color:var(--text)} .ptop span{color:var(--dim)}
+  .step{display:grid;grid-template-columns:18px 1fr auto;gap:8px;font-size:12.5px;color:var(--dim);padding:3px 0}
+  .step .ic{text-align:center} .step.run{color:var(--text)} .step.run .ic{color:var(--amber);animation:pulse 1.2s infinite}
+  .step.done .ic{color:var(--green2)} .step.fail .ic{color:var(--red)} .step .tm{font-variant-numeric:tabular-nums}
+  .step .what{color:var(--dim)} .step.run .what{color:var(--text)}
+  @keyframes pulse{50%{opacity:.35}}
+  .progress.finished .step{display:none} .progress.finished .step.fail{display:grid}
   .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:6px 0 14px;flex-wrap:wrap}
   .tabs button{border:none;background:none;border-bottom:2px solid transparent;border-radius:0;color:var(--dim);padding:9px 12px;font-weight:600}
   .tabs button.on{color:var(--text);border-bottom-color:var(--green)} .tabs .count{color:var(--dim);font-weight:400;margin-left:4px}
@@ -66,7 +74,7 @@
 <body>
 <div class="wrap">
   <header>
-    <div class="logo">S</div>
+    <div class="logo"><svg viewBox="0 0 24 24" width="30" height="30" aria-label="Spring" role="img"><path fill="#6db33f" d="M21.8537 1.4158a10.4504 10.4504 0 0 1-1.284 2.2471A11.9666 11.9666 0 1 0 3.8518 20.7757l.4445.3951a11.9543 11.9543 0 0 0 19.6316-8.2971c.3457-3.0126-.568-6.8649-2.0743-11.458zM5.5805 20.8745a1.0174 1.0174 0 1 1-.1482-1.4323 1.0396 1.0396 0 0 1 .1482 1.4323zm16.1991-3.5806c-2.9385 3.9263-9.2601 2.5928-13.2852 2.7904 0 0-.7161.0494-1.4323.1481 0 0 .2717-.1234.6174-.2469 2.8398-.9877 4.1732-1.1853 5.9018-2.0743 3.2349-1.6545 6.4698-5.2844 7.1118-9.0379-1.2347 3.6053-4.9881 6.7167-8.3959 7.9761-2.3459.8643-6.5685 1.7039-6.5685 1.7039l-.1729-.0988c-2.8645-1.4076-2.9632-7.6304 2.2718-9.6306 2.2966-.889 4.4696-.395 6.9637-.9877 2.6422-.6174 5.7043-2.5929 6.939-5.1857 1.3828 4.1732 3.062 10.643.0493 14.6434z"/></svg></div>
     <div><h1>Spring Stack Report</h1>
       <div class="sub">What your Spring app runs on, what blocks the next upgrade, what is vulnerable — every finding linked to its line.</div></div>
   </header>
@@ -95,6 +103,15 @@
   the configuration metadata inside Spring Boot's own jars, for the version you run and the version you upgrade to. Your decisions in the debt
   inbox are the one thing kept, as SpringTriage entries in your world.</p>
   <h3>Every view, with the Cypher that runs</h3>
+  <details><summary><b>ProjectOverview</b> — What a project is: the commit or folder read, its modules, and how many types, source files, settings and dependencies it has. The first call for any project, and proof the key resolves.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_MODULE]-&gt;(m:ProjectModule)
+WITH p, collect(m.coordinates) AS modules, head(collect(m.project)) AS read
+OPTIONAL MATCH (p)-[:DECLARES_TYPE]-&gt;(t:JavaProjectType)
+WITH p, modules, read, count(t) AS types
+OPTIONAL MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WITH p, modules, read, types, count(s) AS settings
+OPTIONAL MATCH (p)-[:DEPENDS_ON]-&gt;(d:ProjectDependency) WHERE d.depth &gt; 0
+RETURN read AS project, modules, size(modules) AS moduleCount, types, settings,
+       count(DISTINCT d.coordinates) AS dependencies</pre></details>
   <details><summary><b>StackCard</b> — What a Spring project runs on: its Spring Boot and Spring Framework versions, the Boot line and when that line&#x27;s open-source and commercial support end, the Java versions the line supports, its latest patch, and the newest Spring Boot line. The first call for a Spring project.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(d:ProjectDependency)
 WHERE (d.groupId = &#x27;org.springframework.boot&#x27; AND d.artifactId = &#x27;spring-boot&#x27;)
    OR (d.groupId = &#x27;org.springframework&#x27; AND d.artifactId = &#x27;spring-core&#x27;)
@@ -130,103 +147,97 @@ RETURN g.name AS line, g.initialReleaseDate AS released, g.ossSupportEndDate AS 
             WHEN g.commercialSupportEndDate &gt;= today THEN &#x27;commercial-only&#x27;
             ELSE &#x27;unsupported&#x27; END AS support
 ORDER BY released DESC LIMIT 40</pre></details>
-  <details><summary><b>ModernizationFindings</b> — Code Spring has moved past, with what to write instead: javax packages Jakarta EE renamed, WebSecurityConfigurerAdapter, field injection, @MockBean and @SpyBean, JUnit 4, the old @ConstructorBinding, RestTemplate, and auto-configuration registered in spring.factories. Each links to its line.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport)
-WHERE i.name STARTS WITH &#x27;javax.persistence&#x27; OR i.name STARTS WITH &#x27;javax.servlet&#x27;
-   OR i.name STARTS WITH &#x27;javax.validation&#x27; OR i.name STARTS WITH &#x27;javax.annotation.PostConstruct&#x27;
-   OR i.name STARTS WITH &#x27;javax.annotation.PreDestroy&#x27; OR i.name STARTS WITH &#x27;javax.transaction&#x27;
-   OR i.name STARTS WITH &#x27;javax.inject&#x27; OR i.name STARTS WITH &#x27;javax.ws.rs&#x27; OR i.name STARTS WITH &#x27;javax.mail&#x27;
-   OR i.name STARTS WITH &#x27;javax.jms&#x27; OR i.name STARTS WITH &#x27;javax.websocket&#x27;
-RETURN &#x27;jakarta:&#x27; + i.path + &#x27;:&#x27; + toString(i.line) AS id, &#x27;high&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
-       &#x27;javax → jakarta: &#x27; + i.name AS title,
-       &#x27;Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*. This import does not compile there.&#x27; AS detail,
-       &#x27;import &#x27; + replace(i.name, &#x27;javax.&#x27;, &#x27;jakarta.&#x27;) + &#x27; (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta)&#x27; AS fix,
-       i.path AS file, i.line AS line, i.link AS link
-UNION
-MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaProjectType)
-WHERE ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27; OR s ENDS WITH &#x27;WebMvcConfigurerAdapter&#x27;)
-RETURN &#x27;adapter:&#x27; + t.name AS id, &#x27;high&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
-       t.simpleName + &#x27; extends &#x27; + [s IN t.extends WHERE s ENDS WITH &#x27;Adapter&#x27;][0] AS title,
-       CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27;)
-            THEN &#x27;WebSecurityConfigurerAdapter was removed in Spring Security 6 (Spring Boot 3).&#x27;
-            ELSE &#x27;WebMvcConfigurerAdapter was removed in Spring Framework 6.&#x27; END AS detail,
-       CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27;)
-            THEN &#x27;Declare a @Bean SecurityFilterChain filterChain(HttpSecurity http) instead (OpenRewrite recipe org.openrewrite.java.spring.security5.WebSecurityConfigurerAdapter)&#x27;
-            ELSE &#x27;implement WebMvcConfigurer directly&#x27; END AS fix,
-       t.path AS file, t.line AS line, t.link AS link
-UNION
-MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {name: &#x27;Autowired&#x27;, targetKind: &#x27;field&#x27;})
-RETURN &#x27;field-injection:&#x27; + a.owner + &#x27;#&#x27; + a.targetName AS id, &#x27;medium&#x27; AS severity, &#x27;design&#x27; AS category,
-       &#x27;Field injection: &#x27; + a.owner + &#x27;.&#x27; + a.targetName AS title,
-       &#x27;An @Autowired field hides a dependency, cannot be final, and needs a container to test.&#x27; AS detail,
-       &#x27;Take it as a constructor parameter (a single constructor needs no @Autowired).&#x27; AS fix,
-       a.path AS file, a.line AS line, a.link AS link
-UNION
-MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
-WHERE a.name IN [&#x27;MockBean&#x27;, &#x27;SpyBean&#x27;]
-RETURN &#x27;mockbean:&#x27; + a.path + &#x27;:&#x27; + toString(a.line) AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
-       &#x27;@&#x27; + a.name + &#x27; on &#x27; + a.targetName AS title,
-       &#x27;@MockBean and @SpyBean were deprecated in Spring Boot 3.4 and removed in 4.0.&#x27; AS detail,
-       &#x27;Use @MockitoBean / @MockitoSpyBean (org.springframework.test.context.bean.override.mockito).&#x27; AS fix,
-       a.path AS file, a.line AS line, a.link AS link
-UNION
+  <details><summary><b>ModernizationFindings</b> — Code Spring has moved past, from the realm&#x27;s rule catalogue (reference/rules.yml — the SpringRule rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring&#x27;s documentation. With `target` (a Spring Boot version) it says which findings block that upgrade.</summary><pre class="mono">MATCH (r:SpringRule {kind: &#x27;import&#x27;})
 MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport)
-WHERE i.name IN [&#x27;org.junit.Test&#x27;, &#x27;org.junit.runner.RunWith&#x27;, &#x27;org.junit.Before&#x27;, &#x27;org.junit.After&#x27;, &#x27;org.junit.Assert&#x27;]
-RETURN &#x27;junit4:&#x27; + i.path + &#x27;:&#x27; + toString(i.line) AS id, &#x27;medium&#x27; AS severity, &#x27;testing&#x27; AS category,
-       &#x27;JUnit 4: &#x27; + i.name AS title,
-       &#x27;Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Boot 3 no longer manages.&#x27; AS detail,
-       &#x27;Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration)&#x27; AS fix,
-       i.path AS file, i.line AS line, i.link AS link
+WHERE i.name STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE i.name STARTS WITH x)
+  AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT i.path CONTAINS &#x27;src/test/&#x27;)
+WITH r, i ORDER BY i.path, i.line
+WITH r, collect(i) AS uses, collect(DISTINCT i.path) AS files
+RETURN &#x27;rule:&#x27; + r.ruleId AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + toString(size(uses)) + &#x27; use&#x27; + CASE WHEN size(uses) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END + &#x27; in &#x27; + toString(size(files)) + &#x27; file&#x27; + CASE WHEN size(files) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END
+         + &#x27; (&#x27; + reduce(t = &#x27;&#x27;, f IN files[0..4] | t + CASE WHEN t = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + split(f, &#x27;/&#x27;)[size(split(f, &#x27;/&#x27;)) - 1]) + CASE WHEN size(files) &gt; 4 THEN &#x27;, …&#x27; ELSE &#x27;&#x27; END + &#x27;)&#x27; AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 UNION
-MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport {name: &#x27;org.springframework.boot.context.properties.ConstructorBinding&#x27;})
-RETURN &#x27;constructor-binding:&#x27; + i.path AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
-       &#x27;Old @ConstructorBinding in &#x27; + i.path AS title,
-       &#x27;Spring Boot 3 moved it to org.springframework.boot.context.properties.bind.ConstructorBinding and no longer needs it on a class with one constructor.&#x27; AS detail,
-       &#x27;Remove it from the class; keep it, from the new package, only to pick one of several constructors.&#x27; AS fix,
-       i.path AS file, i.line AS line, i.link AS link
+MATCH (r:SpringRule {kind: &#x27;annotation&#x27;})
+MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
+WHERE a.name = r.pattern AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
+WITH r, a ORDER BY a.path, a.line
+WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
+RETURN &#x27;rule:&#x27; + r.ruleId AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + toString(size(uses)) + &#x27; use&#x27; + CASE WHEN size(uses) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END + &#x27; in &#x27; + toString(size(files)) + &#x27; file&#x27; + CASE WHEN size(files) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END
+         + &#x27; (&#x27; + reduce(t = &#x27;&#x27;, f IN files[0..4] | t + CASE WHEN t = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + split(f, &#x27;/&#x27;)[size(split(f, &#x27;/&#x27;)) - 1]) + CASE WHEN size(files) &gt; 4 THEN &#x27;, …&#x27; ELSE &#x27;&#x27; END + &#x27;)&#x27; AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 UNION
-MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport {name: &#x27;org.springframework.web.client.RestTemplate&#x27;})
-RETURN &#x27;resttemplate:&#x27; + i.path AS id, &#x27;info&#x27; AS severity, &#x27;modernize&#x27; AS category,
-       &#x27;RestTemplate in &#x27; + i.path AS title,
-       &#x27;RestTemplate is in maintenance; Spring Framework 6.1 added RestClient, the same synchronous model with a fluent API.&#x27; AS detail,
-       &#x27;Build a RestClient (RestClient.create() or RestClient.Builder) for new code.&#x27; AS fix,
-       i.path AS file, i.line AS line, i.link AS link
+MATCH (r:SpringRule {kind: &#x27;field-annotation&#x27;})
+MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {targetKind: &#x27;field&#x27;})
+WHERE a.name = r.pattern AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
+RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + a.owner + &#x27;#&#x27; + a.targetName AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + split(a.owner, &#x27;.&#x27;)[size(split(a.owner, &#x27;.&#x27;)) - 1] + &#x27;.&#x27; + a.targetName AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       a.path AS file, a.line AS line, a.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 UNION
-MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile {fileName: &#x27;spring.factories&#x27;})
-WHERE f.path CONTAINS &#x27;src/main/resources/META-INF/&#x27;
-RETURN &#x27;spring-factories:&#x27; + f.path AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
-       &#x27;META-INF/spring.factories in &#x27; + coalesce(nullif(f.module, &#x27;&#x27;), &#x27;the root module&#x27;) AS title,
-       &#x27;Spring Boot 3 no longer reads auto-configurations from spring.factories; any EnableAutoConfiguration entry in it is ignored.&#x27; AS detail,
-       &#x27;Move each auto-configuration to META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports and annotate it @AutoConfiguration.&#x27; AS fix,
-       f.path AS file, 1 AS line, f.link AS link</pre></details>
+MATCH (r:SpringRule {kind: &#x27;extends&#x27;})
+MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaProjectType)
+WHERE ANY(x IN t.extends WHERE x ENDS WITH r.pattern) AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT t.path CONTAINS &#x27;src/test/&#x27;)
+RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + t.name AS id,
+       r.severity AS severity, r.category AS category, t.simpleName + &#x27; &#x27; + r.title AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       t.path AS file, t.line AS line, t.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+UNION
+MATCH (r:SpringRule {kind: &#x27;file&#x27;})
+MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.fileName = r.pattern AND f.path CONTAINS &#x27;src/main/resources/META-INF/&#x27;
+RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + f.path AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27; in &#x27; + CASE WHEN f.module = &#x27;&#x27; THEN &#x27;the root module&#x27; ELSE f.module END AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       f.path AS file, 1 AS line, f.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn</pre></details>
   <details><summary><b>ConfigurationProblems</b> — Settings in the project&#x27;s application*.yml / .properties that the Spring Boot it runs does not bind (a typo, or a property from another version), and settings it has deprecated — checked against what the project&#x27;s own Spring Boot jars document. Keys under the project&#x27;s own @ConfigurationProperties prefixes, or read by @Value, are the project&#x27;s and are not flagged. Downloads the project&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
-WHERE j.groupId = &#x27;org.springframework.boot&#x27; AND j.jarPath IS NOT NULL
+WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH &#x27;org.springframework&#x27; OR j.artifactId CONTAINS &#x27;spring-boot&#x27;
+   OR j.artifactId CONTAINS &#x27;starter&#x27; OR j.artifactId CONTAINS &#x27;autoconfigure&#x27;)
 MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
 WITH p, collect(bp) AS props
-WITH p, props, [x IN props | x.name] AS known,
-     [x IN props WHERE x.type STARTS WITH &#x27;java.util.Map&#x27; OR x.type STARTS WITH &#x27;java.util.List&#x27; | x.name] AS open
+WITH p, props,
+     [x IN props WHERE x.type STARTS WITH &#x27;java.util.Map&#x27; OR x.type STARTS WITH &#x27;java.util.List&#x27; | toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS open
 OPTIONAL MATCH (p)-[:HAS_ANNOTATION]-&gt;(cp:JavaProjectAnnotation)
 WHERE cp.name = &#x27;ConfigurationProperties&#x27; OR cp.name = &#x27;Value&#x27;
-WITH p, props, known, open,
+WITH p, props, open,
      collect(DISTINCT CASE WHEN cp.name = &#x27;ConfigurationProperties&#x27;
                THEN coalesce([x IN cp.attributes WHERE x STARTS WITH &#x27;prefix=&#x27; | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
      collect(DISTINCT CASE WHEN cp.name = &#x27;Value&#x27; THEN split(split(split(cp.value, &#x27;${&#x27;)[1], &#x27;}&#x27;)[0], &#x27;:&#x27;)[0] END) AS valueKeys
 MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
-WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND (s.fileName STARTS WITH &#x27;application&#x27; OR s.fileName STARTS WITH &#x27;bootstrap&#x27;)
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x27;/META-INF/&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;messages&#x27; AND NOT s.fileName STARTS WITH &#x27;logback&#x27; AND NOT s.fileName STARTS WITH &#x27;log4j&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
   AND NOT s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
-WITH s, props, known, open, [x IN ownPrefixes WHERE x IS NOT NULL] AS ownPrefixes, [x IN valueKeys WHERE x IS NOT NULL] AS valueKeys,
-     split(s.name, &#x27;[&#x27;)[0] AS base
-WITH s, base, ownPrefixes, valueKeys, known, open, [x IN props WHERE x.name = base][0] AS match
+WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS ownPrefixes,
+     [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS valueKeys,
+     toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) AS base
+WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) = base][0] AS match
 WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + &#x27;.&#x27; OR base = x)
   AND NOT ANY(x IN valueKeys WHERE base = x)
   AND NOT ANY(x IN open WHERE base STARTS WITH x + &#x27;.&#x27;)
   AND (match IS NULL OR match.deprecated)
 RETURN &#x27;config:&#x27; + s.path + &#x27;:&#x27; + toString(s.line) + &#x27;:&#x27; + s.name AS id,
-       CASE WHEN match IS NULL THEN &#x27;medium&#x27; WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
+       CASE WHEN match IS NULL AND split(base, &#x27;.&#x27;)[0] IN [&#x27;spring&#x27;, &#x27;server&#x27;, &#x27;management&#x27;, &#x27;logging&#x27;, &#x27;info&#x27;, &#x27;debug&#x27;, &#x27;trace&#x27;] THEN &#x27;medium&#x27;
+            WHEN match IS NULL THEN &#x27;low&#x27; WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
        &#x27;configuration&#x27; AS category,
-       CASE WHEN match IS NULL THEN &#x27;Spring Boot binds no property &#x27; + s.name
+       CASE WHEN match IS NULL AND split(base, &#x27;.&#x27;)[0] IN [&#x27;spring&#x27;, &#x27;server&#x27;, &#x27;management&#x27;, &#x27;logging&#x27;, &#x27;info&#x27;, &#x27;debug&#x27;, &#x27;trace&#x27;] THEN &#x27;Spring Boot binds no property &#x27; + s.name
+            WHEN match IS NULL THEN &#x27;Undocumented setting &#x27; + s.name
             WHEN match.deprecationLevel = &#x27;error&#x27; THEN s.name + &#x27; no longer binds&#x27;
             ELSE s.name + &#x27; is deprecated&#x27; END AS title,
-       CASE WHEN match IS NULL THEN &#x27;Nothing in the Spring Boot jars this project resolves documents it, and no @ConfigurationProperties or @Value of the project reads it: a typo, or a property from another Spring Boot version, does nothing.&#x27;
+       CASE WHEN match IS NULL THEN &#x27;No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.&#x27;
             WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;Spring Boot removed it&#x27; + coalesce(&#x27; in &#x27; + match.deprecatedSince, &#x27;&#x27;) + &#x27;: the setting is silently ignored.&#x27; + coalesce(&#x27; &#x27; + match.deprecationReason, &#x27;&#x27;)
             ELSE coalesce(match.deprecationReason, &#x27;Deprecated&#x27;) + coalesce(&#x27; (since &#x27; + match.deprecatedSince + &#x27;)&#x27;, &#x27;&#x27;) + &#x27;; it still binds, for now.&#x27; END AS detail,
        CASE WHEN match IS NULL THEN &#x27;Check the spelling against the Spring Boot reference, or remove it.&#x27;
@@ -241,8 +252,10 @@ MATCH (v)-[:IS]-&gt;(b:BootJar)-[:DOCUMENTS]-&gt;(bp:BootProperty)
 WHERE bp.deprecated
 WITH collect(bp) AS dropped
 MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]-&gt;(s:ProjectSetting)
-WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND (s.fileName STARTS WITH &#x27;application&#x27; OR s.fileName STARTS WITH &#x27;bootstrap&#x27;)
-WITH s, [x IN dropped WHERE x.name = split(s.name, &#x27;[&#x27;)[0]][0] AS match
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x27;/META-INF/&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;messages&#x27; AND NOT s.fileName STARTS WITH &#x27;logback&#x27; AND NOT s.fileName STARTS WITH &#x27;log4j&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
+WITH s, [x IN dropped WHERE toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) = toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))][0] AS match
 WHERE match IS NOT NULL
 RETURN &#x27;upgrade-config:&#x27; + $target + &#x27;:&#x27; + s.path + &#x27;:&#x27; + toString(s.line) + &#x27;:&#x27; + s.name AS id,
        CASE WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
@@ -254,7 +267,7 @@ RETURN &#x27;upgrade-config:&#x27; + $target + &#x27;:&#x27; + s.path + &#x27;:&
        s.path AS file, s.line AS line, s.link AS link
 LIMIT 500</pre></details>
   <details><summary><b>Vulnerabilities</b> — Security advisories affecting the exact versions the project resolves, worst first: the dependency, the advisory and its CVE ids, its CVSS score, and the fixed version on your own line (same major.minor) when there is one — else the nearest fix above it.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(d:ProjectDependency)
-WHERE d.depth &gt; 0
+WHERE d.depth &gt; 0 AND size(split(d.coordinates, &#x27;:&#x27;)) = 3
 WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + &#x27;:&#x27; + d.artifactId AS artifact, head(collect(d)) AS d
 MATCH (d)-[:HAS_ADVISORY]-&gt;(a:DependencyAdvisory)-[:DESCRIBED_BY]-&gt;(x:AdvisoryDetail)
 OPTIONAL MATCH (a)-[:FIXED_IN]-&gt;(f:AdvisoryFix)
@@ -289,6 +302,41 @@ RETURN &#x27;override:&#x27; + mine + &#x27;:&#x27; + boots + &#x27;:&#x27; + fi
          + &#x27;. Patches Spring Boot ships for them do not reach this build.&#x27; AS detail,
        &#x27;Remove the version override and take &#x27; + boots + &#x27; from Spring Boot, unless you pinned it on purpose (then note why).&#x27; AS fix,
        &#x27;pom.xml&#x27; AS file, 0 AS line, null AS link</pre></details>
+  <details><summary><b>VulnerableDependencies</b> — One finding per vulnerable dependency rather than per advisory: how many advisories affect the exact version resolved, the worst CVSS, and the one upgrade on your own line (same major.minor) that fixes every advisory that has a fix there — the unit of work a developer actually does.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(d:ProjectDependency)
+WHERE d.depth &gt; 0 AND size(split(d.coordinates, &#x27;:&#x27;)) = 3
+WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + &#x27;:&#x27; + d.artifactId AS artifact, head(collect(d)) AS d
+MATCH (d)-[:HAS_ADVISORY]-&gt;(a:DependencyAdvisory)-[:DESCRIBED_BY]-&gt;(x:AdvisoryDetail)
+OPTIONAL MATCH (a)-[:FIXED_IN]-&gt;(f:AdvisoryFix)
+WITH coordinates, version, artifact, a, x, collect(f.fixed) AS fixes, split(version, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(version, &#x27;.&#x27;)[1] AS line
+OPTIONAL MATCH (:PublishedArtifact {ga: artifact})-[:PUBLISHED]-&gt;(pv:PublishedVersion)
+WITH coordinates, version, artifact, a, x, fixes, line, collect(pv.version) AS published
+WITH coordinates, version, artifact, a, x, line, published,
+     [v IN fixes WHERE split(v, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(v, &#x27;.&#x27;)[1] = line][0] AS onLine
+WITH coordinates, version, artifact, line, published, count(a) AS advisories, max(x.cvss3Score) AS worst,
+     collect(onLine) AS onLineFixes, collect(CASE WHEN x.cvss3Score &gt;= 9 THEN 1 END) AS crit
+WITH coordinates, version, artifact, line, advisories, worst, size([c IN crit WHERE c IS NOT NULL]) AS critical,
+     [v IN onLineFixes WHERE v IS NOT NULL] AS fixed, [v IN onLineFixes WHERE v IS NOT NULL AND v IN published] AS downloadable,
+     size(published) &gt; 0 AS knowsPublished
+WITH coordinates, version, artifact, line, advisories, worst, critical, fixed, downloadable, knowsPublished,
+     reduce(best = null, v IN (CASE WHEN knowsPublished THEN downloadable ELSE fixed END) |
+       CASE WHEN best IS NULL OR [n IN [x IN split(v, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL] &gt; [n IN [x IN split(best, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL] THEN v ELSE best END) AS upgradeTo,
+     reduce(best = null, v IN fixed |
+       CASE WHEN best IS NULL OR [n IN [x IN split(v, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL] &gt; [n IN [x IN split(best, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL] THEN v ELSE best END) AS anyFix
+WITH coordinates, version, artifact, line, advisories, worst, critical, upgradeTo, anyFix, size(fixed) AS fixedOnLine,
+     CASE WHEN upgradeTo IS NULL THEN 0 ELSE size([v IN fixed WHERE [n IN [x IN split(v, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL] &lt;= [n IN [x IN split(upgradeTo, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]]) END AS coveredBy
+RETURN &#x27;vulnerable:&#x27; + coordinates AS id,
+       CASE WHEN worst &gt;= 9 THEN &#x27;critical&#x27; WHEN worst &gt;= 7 THEN &#x27;high&#x27; WHEN worst &gt;= 4 THEN &#x27;medium&#x27; ELSE &#x27;low&#x27; END AS severity,
+       &#x27;vulnerability&#x27; AS category,
+       artifact + &#x27; &#x27; + version + &#x27;: &#x27; + toString(advisories) + &#x27; advisor&#x27; + CASE WHEN advisories = 1 THEN &#x27;y&#x27; ELSE &#x27;ies&#x27; END
+         + CASE WHEN critical &gt; 0 THEN &#x27; (&#x27; + toString(critical) + &#x27; critical)&#x27; ELSE &#x27;&#x27; END AS title,
+       &#x27;Worst CVSS &#x27; + toString(worst) + &#x27;. &#x27; + toString(fixedOnLine) + &#x27; of &#x27; + toString(advisories) + &#x27; are fixed on your &#x27; + line + &#x27; line&#x27;
+         + CASE WHEN anyFix IS NOT NULL AND anyFix &lt;&gt; coalesce(upgradeTo, &#x27;&#x27;) THEN &#x27;; the fix in &#x27; + anyFix + &#x27; is a commercial-only release, not on Maven Central&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS detail,
+       CASE WHEN upgradeTo IS NOT NULL THEN &#x27;Upgrade to &#x27; + upgradeTo + &#x27; — fixes &#x27; + toString(coveredBy) + &#x27; of &#x27; + toString(advisories)
+              + CASE WHEN coveredBy &lt; advisories THEN &#x27;; the rest need a newer line (see the Upgrade tab).&#x27; ELSE &#x27;.&#x27; END
+            WHEN anyFix IS NOT NULL THEN &#x27;No downloadable fix on your &#x27; + line + &#x27; line (&#x27; + anyFix + &#x27; is commercial-only): move to a newer line (see the Upgrade tab).&#x27;
+            ELSE &#x27;No fix on your &#x27; + line + &#x27; line: move to a newer line (see the Upgrade tab).&#x27; END AS fix,
+       coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
+ORDER BY cvss DESC LIMIT 500</pre></details>
   <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares: classes annotated @Component, @Service, @Repository, @Controller, @RestController or @Configuration, and @Bean methods — each with the profiles and conditions it is declared under, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
 WHERE a.name IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
 WITH p, a
@@ -381,14 +429,57 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (r.result && Array.isArray(r.result.rows)) return r.result.rows;
     return [];
   }
-  function view(name, params) { return embabel.views.invoke(name, params || {}).then(rowsOf); }
+  /* A finding check reads every candidate (every import, every setting, every dependency), so when it
+     matches none the answer is "nothing found" — the one case the runtime reports as FETCHED_NOT_MATCHED. */
+  var EXHAUSTIVE = { ModernizationFindings: 1, ConfigurationProblems: 1, UpgradeConfiguration: 1, VulnerableDependencies: 1,
+                     VersionOverrides: 1, Vulnerabilities: 1, Beans: 1, Profiles: 1, Triage: 1 };
+  function view(name, params) {
+    return embabel.views.invoke(name, params || {}).then(rowsOf).catch(function (e) {
+      if (EXHAUSTIVE[name] && e && e.reason === 'FETCHED_NOT_MATCHED') return [];
+      throw e;
+    });
+  }
   function $(id) { return document.getElementById(id); }
 
-  /* ── progress ── */
-  var STEPS = [['code', 'Reading code & build'], ['support', 'Support'], ['modern', 'Code'], ['config', 'Configuration'],
-               ['deps', 'Dependencies & CVEs'], ['upgrade', 'Upgrade path']];
-  function steps() { $('progress').innerHTML = STEPS.map(function (s) { return '<span class="step" id="st-' + s[0] + '">' + s[1] + '</span>'; }).join(''); }
-  function mark(id, cls, label) { var el = $('st-' + id); if (el) { el.className = 'step ' + cls; if (label) el.textContent = label; } }
+  /* ── progress: which checks are done, what the running ones are doing, and for how long ── */
+  var STEPS = [
+    ['code', 'Code & build', 40, function () { return /^https?:/.test(state.project)
+      ? 'Cloning ' + state.project.replace(/^https?:\/\//, '') + ' and resolving its Maven build, every module against the others — a first read takes 30–60 s; after that it is cached by commit'
+      : 'Reading ' + state.project + ' from your workspace and resolving its Maven build'; }],
+    ['support', 'Support dates', 5, function () { return 'Reading release lines and support dates from spring.io and endoflife.date'; }],
+    ['modern', 'Code rules', 10, function () { return 'Matching the rule catalogue against ' + counts('types', 'types') + ' and their imports and annotations'; }],
+    ['config', 'Configuration', 20, function () { return 'Downloading the project’s Spring jars to check ' + counts('settings', 'settings') + ' against every property they document'; }],
+    ['deps', 'Vulnerabilities', 15, function () { return 'Looking up advisories for ' + counts('dependencies', 'resolved dependencies') + ' on deps.dev and OSV, and which fixes Maven Central publishes'; }],
+    ['upgrade', 'Upgrade path', 10, function () { return 'Reading what Spring Boot ' + (state.target || '…') + ' removed and renamed, from its own jars'; }]
+  ];
+  var prog = {};
+  function counts(k, noun) { var o = state.overview; return o && o[k] != null ? o[k] + ' ' + noun : 'its ' + noun; }
+  function steps() {
+    prog = {}; STEPS.forEach(function (s) { prog[s[0]] = { state: 'wait', start: null, end: null, note: '' }; });
+    $('progress').className = 'progress'; drawProgress();
+  }
+  function mark(id, cls, note) {
+    var p = prog[id]; if (!p) return;
+    if (cls === 'run' && !p.start) p.start = Date.now();
+    if (cls === 'done' || cls === 'fail') { p.end = Date.now(); if (!p.start) p.start = p.end; }
+    p.state = cls; if (note) p.note = note; drawProgress();
+  }
+  function drawProgress() {
+    var total = 0, done = 0, now = Date.now(), first = null;
+    STEPS.forEach(function (s) { total += s[2]; var p = prog[s[0]]; if (p.state === 'done' || p.state === 'fail') done += s[2]; if (p.start && (!first || p.start < first)) first = p.start; });
+    var pct = Math.round(100 * done / total), finished = done === total;
+    $('progress').className = 'progress' + (finished ? ' finished' : '');
+    $('progress').innerHTML = '<div class="ptop"><b>' + (finished ? 'Done' : 'Reading the project') + ' — ' + pct + '% of checks complete</b><span>' +
+      (first ? Math.round(((finished ? Math.max.apply(null, STEPS.map(function (s) { return prog[s[0]].end || 0; })) : now) - first) / 1000) + ' s' : '') + '</span></div>' +
+      '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+      STEPS.map(function (s) {
+        var p = prog[s[0]], secs = p.start ? Math.round(((p.end || now) - p.start) / 1000) + ' s' : '';
+        var ic = { wait: '○', run: '●', done: '✓', fail: '✕' }[p.state];
+        var what = p.state === 'run' ? s[3]() : (p.note || (p.state === 'wait' ? 'waiting' : p.state === 'done' ? 'done' : 'could not complete'));
+        return '<div class="step ' + p.state + '"><span class="ic">' + ic + '</span><span><b>' + esc(s[1]) + '</b> <span class="what">— ' + esc(what) + '</span></span><span class="tm">' + secs + '</span></div>';
+      }).join('');
+  }
+  setInterval(function () { if (state.project && Object.keys(prog).some(function (k) { return prog[k].state === 'run'; })) drawProgress(); }, 1000);
 
   /* ── the project ── */
   function normalise(v) {
@@ -403,23 +494,27 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (!key) return;
     $('project').value = key;
     if (location.hash !== '#project=' + encodeURIComponent(key)) history.replaceState(null, '', '#project=' + encodeURIComponent(key));
-    state = Object.assign(state, { project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    state = Object.assign(state, { overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     $('report').hidden = false; steps(); renderStack(); render();
     mark('code', 'run');
     var first = function () { return view('StackCard', { project: key }); };
     first().catch(function () {
-      mark('code', 'run', 'First read of this project: cloning and resolving its build…');
+      mark('code', 'run');
       return first();
     }).then(function (rows) {
       state.stack = rows[0] || null;
-      mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion ? 'Code & build read' : 'Not a Spring Boot build?');
+      mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion ? 'read' : 'no Spring Boot in the build — is it a Maven project that uses Spring Boot?');
+      view('ProjectOverview', { project: key }).then(function (rows) {
+        state.overview = rows[0] || null;
+        if (state.overview) mark('code', 'done', state.overview.moduleCount + ' module(s), ' + state.overview.types + ' types, ' + state.overview.settings + ' settings, ' + state.overview.dependencies + ' dependencies');
+      }).catch(function () {});
       renderStack();
       supportFinding();
       return Promise.all([loadLines(), loadTriage()]);
     }).then(function () {
       mark('support', 'done');
       pickTarget();
-      run('modern', 'ModernizationFindings', { project: key });
+      run('modern', 'ModernizationFindings', { project: key, target: state.target || '' });
       run('config', 'ConfigurationProblems', { project: key });
       run('deps', 'VulnerableDependencies', { project: key });
       run(null, 'VersionOverrides', { project: key });
@@ -575,8 +670,9 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       (state.upgrade == null ? '<div class="empty">Reading what ' + esc(state.target) + ' changes — the first time downloads its Spring Boot jars.</div>' : '') +
       (blockers.length ? blockers.map(function (f) { return item(f, null); }).join('') : (state.upgrade ? '<div class="empty">Nothing found that blocks this upgrade.</div>' : ''));
     var sel = $('target'); if (sel) sel.addEventListener('change', function () {
-      state.findings = state.findings.filter(function (f) { return f.id.indexOf('upgrade-config:') !== 0; });
+      state.findings = state.findings.filter(function (f) { return f.id.indexOf('upgrade-config:') !== 0 && f.id.indexOf('rule:') !== 0; });
       state.target = sel.value; state.upgrade = null; renderStack(); render(); loadUpgrade();
+      run(null, 'ModernizationFindings', { project: state.project, target: state.target });
     });
     var cp = $('copyplan'); if (cp) cp.addEventListener('click', function () {
       navigator.clipboard.writeText(plan(blockers)).then(function () { cp.textContent = 'Copied — paste it to your coding agent'; });

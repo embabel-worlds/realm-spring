@@ -1,0 +1,138 @@
+# THE RULE CATALOGUE. Each rule is code Spring removed, deprecated or replaced, as data: what to
+# match in a project, how bad it is, where it stops working, what to write instead, the OpenRewrite
+# recipe that does it, and where Spring documents it. The ModernizationFindings view joins these to
+# a project's imports, types, annotations and files; adding a rule is adding a row here.
+#
+#   kind: import           pattern = an import prefix         (one finding per rule, listing the files)
+#         extends          pattern = a supertype's suffix      (one finding per type)
+#         annotation       pattern = an annotation's name      (one finding per rule, listing the files)
+#         field-annotation pattern = an annotation on a field  (one finding per field)
+#         file             pattern = a file name under src/main/resources/META-INF
+#   appliesTo: main to skip test sources (an @Autowired field in a test is idiomatic); all when absent
+#   excludes: prefixes an import rule does not match (JUnit 5's org.junit.jupiter under JUnit 4's org.junit.)
+#   breaksIn: the Spring Boot version from which the code no longer compiles or runs; empty when it
+#             still works and the rule is advice.
+#
+# Every recipe named here was checked against docs.openrewrite.org; a rule with no verified recipe names none.
+# Seeded on load (idempotent on ruleId), so the catalogue is a file anyone can read, argue with and extend.
+
+- type: SpringRule
+  data: { ruleId: jakarta-persistence, kind: import, pattern: "javax.persistence.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.persistence → jakarta.persistence", detail: "Spring Boot 3 and Spring Framework 6 use Jakarta EE 9+, where javax.persistence became jakarta.persistence; these imports do not compile there.",
+          fix: "Rename the imports to jakarta.persistence.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-servlet, kind: import, pattern: "javax.servlet.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.servlet → jakarta.servlet", detail: "Spring Boot 3 runs on Servlet 6 (Jakarta EE 10); javax.servlet does not exist there.",
+          fix: "Rename the imports to jakarta.servlet.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-validation, kind: import, pattern: "javax.validation.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.validation → jakarta.validation", detail: "Bean Validation moved to jakarta.validation with Jakarta EE 9; Spring Boot 3 ships Hibernate Validator 8 on it.",
+          fix: "Rename the imports to jakarta.validation.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-annotation, kind: import, pattern: "javax.annotation.Post", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.annotation.PostConstruct → jakarta.annotation", detail: "@PostConstruct and @PreDestroy moved to jakarta.annotation; the javax versions are no longer on Spring Boot 3's classpath.",
+          fix: "Rename the imports to jakarta.annotation.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-annotation-predestroy, kind: import, pattern: "javax.annotation.PreDestroy", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.annotation.PreDestroy → jakarta.annotation", detail: "@PreDestroy moved to jakarta.annotation with Jakarta EE 9.",
+          fix: "import jakarta.annotation.PreDestroy", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-transaction, kind: import, pattern: "javax.transaction.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.transaction → jakarta.transaction", detail: "JTA moved to jakarta.transaction with Jakarta EE 9. (Spring's own @Transactional is unaffected.)",
+          fix: "Rename the imports to jakarta.transaction.*, or use org.springframework.transaction.annotation.Transactional", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-inject, kind: import, pattern: "javax.inject.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.inject → jakarta.inject", detail: "JSR-330 annotations are read from jakarta.inject by Spring Framework 6.",
+          fix: "Rename the imports to jakarta.inject.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-mail, kind: import, pattern: "javax.mail.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.mail → jakarta.mail", detail: "Spring Boot 3 manages Jakarta Mail 2, in jakarta.mail.",
+          fix: "Rename the imports to jakarta.mail.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-ws-rs, kind: import, pattern: "javax.ws.rs.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.ws.rs → jakarta.ws.rs", detail: "JAX-RS moved to jakarta.ws.rs; Spring Boot 3 manages Jersey 3 on it.",
+          fix: "Rename the imports to jakarta.ws.rs.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-jms, kind: import, pattern: "javax.jms.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.jms → jakarta.jms", detail: "JMS moved to jakarta.jms with Jakarta EE 9.",
+          fix: "Rename the imports to jakarta.jms.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-websocket, kind: import, pattern: "javax.websocket.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.websocket → jakarta.websocket", detail: "The WebSocket API moved to jakarta.websocket with Jakarta EE 9.",
+          fix: "Rename the imports to jakarta.websocket.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: jakarta-xml-bind, kind: import, pattern: "javax.xml.bind.", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "javax.xml.bind → jakarta.xml.bind", detail: "JAXB moved to jakarta.xml.bind; it left the JDK in Java 11 and Spring Boot 3 manages the Jakarta version.",
+          fix: "Rename the imports to jakarta.xml.bind.*", recipe: "org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#jakarta-ee" }
+- type: SpringRule
+  data: { ruleId: web-security-configurer-adapter, kind: extends, pattern: "WebSecurityConfigurerAdapter", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "extends WebSecurityConfigurerAdapter", detail: "WebSecurityConfigurerAdapter was deprecated in Spring Security 5.7 and removed in 6.0 (Spring Boot 3).",
+          fix: "Declare a @Bean SecurityFilterChain filterChain(HttpSecurity http) instead", recipe: "org.openrewrite.java.spring.security5.WebSecurityConfigurerAdapter",
+          docs: "https://spring.io/blog/2022/02/21/spring-security-without-the-websecurityconfigureradapter" }
+- type: SpringRule
+  data: { ruleId: web-mvc-configurer-adapter, kind: extends, pattern: "WebMvcConfigurerAdapter", severity: high, category: upgrade-blocker, breaksIn: "3.0",
+          title: "extends WebMvcConfigurerAdapter", detail: "WebMvcConfigurerAdapter was deprecated in Spring Framework 5.0 and removed in 6.0.",
+          fix: "Implement WebMvcConfigurer directly; its methods have defaults", recipe: "org.openrewrite.java.spring.framework.MigrateWebMvcConfigurerAdapter",
+          docs: "https://github.com/spring-projects/spring-framework/wiki/Upgrading-to-Spring-Framework-6.x" }
+- type: SpringRule
+  data: { ruleId: enable-global-method-security, kind: annotation, pattern: "EnableGlobalMethodSecurity", severity: medium, category: upgrade-blocker, breaksIn: "4.0",
+          title: "@EnableGlobalMethodSecurity", detail: "Deprecated in Spring Security 5.6 in favour of @EnableMethodSecurity, and gone in Spring Security 7 (Spring Boot 4).",
+          fix: "Use @EnableMethodSecurity (prePostEnabled is on by default)", recipe: "org.openrewrite.java.spring.security5.ReplaceGlobalMethodSecurityWithMethodSecurity",
+          docs: "https://docs.spring.io/spring-security/reference/servlet/authorization/method-security.html" }
+- type: SpringRule
+  data: { ruleId: mock-bean, kind: annotation, pattern: "MockBean", severity: medium, category: upgrade-blocker, breaksIn: "4.0",
+          title: "@MockBean", detail: "@MockBean was deprecated in Spring Boot 3.4 and removed in 4.0, replaced by Spring Framework's own bean overrides.",
+          fix: "Use @MockitoBean (org.springframework.test.context.bean.override.mockito.MockitoBean)", recipe: "",
+          docs: "https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html" }
+- type: SpringRule
+  data: { ruleId: spy-bean, kind: annotation, pattern: "SpyBean", severity: medium, category: upgrade-blocker, breaksIn: "4.0",
+          title: "@SpyBean", detail: "@SpyBean was deprecated in Spring Boot 3.4 and removed in 4.0.",
+          fix: "Use @MockitoSpyBean (org.springframework.test.context.bean.override.mockito.MockitoSpyBean)", recipe: "",
+          docs: "https://docs.spring.io/spring-framework/reference/testing/annotations/integration-spring/annotation-mockitobean.html" }
+- type: SpringRule
+  data: { ruleId: constructor-binding-moved, kind: import, pattern: "org.springframework.boot.context.properties.ConstructorBinding", severity: medium, category: upgrade-blocker, breaksIn: "3.0",
+          title: "Old @ConstructorBinding", detail: "Spring Boot 3 moved it to org.springframework.boot.context.properties.bind.ConstructorBinding, and a class with one constructor no longer needs it.",
+          fix: "Remove it from the class; use the new package only to choose among several constructors", recipe: "org.openrewrite.java.spring.boot3.RemoveConstructorBindingAnnotation",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide#constructingbinding-no-longer-needed-at-the-type-level" }
+- type: SpringRule
+  data: { ruleId: junit4, kind: import, pattern: "org.junit.", excludes: ["org.junit.jupiter.", "org.junit.platform."], severity: medium, category: testing, breaksIn: "",
+          title: "JUnit 4", detail: "spring-boot-starter-test has shipped JUnit 5 only since Spring Boot 2.4; JUnit 4 tests run only with junit-vintage-engine added by hand.",
+          fix: "Move the tests to org.junit.jupiter", recipe: "org.openrewrite.java.testing.junit5.JUnit4to5Migration",
+          docs: "https://docs.spring.io/spring-boot/reference/testing/index.html" }
+- type: SpringRule
+  data: { ruleId: jackson-2-databind, kind: import, pattern: "com.fasterxml.jackson.databind.", severity: medium, category: upgrade-blocker, breaksIn: "4.0",
+          title: "Jackson 2 databind", detail: "Spring Boot 4 auto-configures Jackson 3, whose databind lives in tools.jackson.databind; Jackson 2 support is deprecated there.",
+          fix: "Move to tools.jackson.databind (annotations stay in com.fasterxml.jackson.annotation)", recipe: "org.openrewrite.java.jackson.UpgradeJackson_2_3",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide" }
+- type: SpringRule
+  data: { ruleId: boot4-test-slices, kind: import, pattern: "org.springframework.boot.test.autoconfigure.", severity: medium, category: upgrade-blocker, breaksIn: "4.0",
+          title: "Test slice annotations moved", detail: "Spring Boot 4 split its auto-configuration into per-technology modules, and the test slices (@WebMvcTest, @DataJpaTest, …) moved with them.",
+          fix: "Add the matching spring-boot-<technology>-test module and import the slice from it", recipe: "",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide" }
+- type: SpringRule
+  data: { ruleId: field-injection, kind: field-annotation, pattern: "Autowired", appliesTo: main, severity: medium, category: design, breaksIn: "",
+          title: "Field injection", detail: "An @Autowired field hides a dependency, cannot be final, and needs a container to test.",
+          fix: "Take it as a constructor parameter (a single constructor needs no @Autowired)", recipe: "",
+          docs: "https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html" }
+- type: SpringRule
+  data: { ruleId: rest-template, kind: import, pattern: "org.springframework.web.client.RestTemplate", severity: info, category: modernize, breaksIn: "",
+          title: "RestTemplate", detail: "RestTemplate is in maintenance; Spring Framework 6.1 added RestClient, the same synchronous model with a fluent API.",
+          fix: "Use RestClient (RestClient.create() or an injected RestClient.Builder) for new code", recipe: "",
+          docs: "https://docs.spring.io/spring-framework/reference/integration/rest-clients.html" }
+- type: SpringRule
+  data: { ruleId: spring-factories-autoconfig, kind: file, pattern: "spring.factories", severity: medium, category: upgrade-blocker, breaksIn: "3.0",
+          title: "META-INF/spring.factories", detail: "Spring Boot 3 no longer reads auto-configurations from spring.factories; an EnableAutoConfiguration entry in it is ignored.",
+          fix: "List the auto-configurations in META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports and annotate each @AutoConfiguration", recipe: "",
+          docs: "https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.7-Release-Notes#changes-to-auto-configuration" }

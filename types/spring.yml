@@ -216,6 +216,24 @@
     version: "The version."
     latest: { type: boolean, description: "The highest published." }
 
+- name: SpringRule
+  userAnchor: false
+  description: "A rule of the realm's catalogue (reference/rules.yml): code Spring removed, deprecated or replaced — what to match (`kind`, `pattern`), how bad, from which Spring Boot version it breaks (`breaksIn`), what to write instead, the OpenRewrite recipe that does it, and where Spring documents it."
+  properties:
+    ruleId: { identity: true, description: "The rule." }
+    kind: "import, extends, annotation, field-annotation or file."
+    pattern: "An import prefix, a supertype's suffix, an annotation's name, or a file name."
+    excludes: { cardinality: LIST, description: "Import prefixes the rule does not match." }
+    appliesTo: "main to skip test sources; absent for all."
+    severity: "critical, high, medium, low or info."
+    category: "upgrade-blocker, design, testing, modernize, …"
+    breaksIn: "The Spring Boot version from which the code no longer compiles or runs; empty for advice."
+    title: "What it is."
+    detail: "Why it matters."
+    fix: "What to write instead."
+    recipe: "The OpenRewrite recipe that makes the change; empty when none is verified."
+    docs: "Where Spring documents it."
+
 # The one thing this realm keeps: what you decided about a finding in the debt inbox.
 - name: SpringTriage
   description: "A decision about one finding in a project's debt inbox: done, snoozed, or won't fix, with a note. `findingId` is the finding's id as the DebtInbox view gives it."

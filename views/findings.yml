@@ -42,91 +42,71 @@
 
 - name: ModernizationFindings
   description: >-
-    Code Spring has moved past, with what to write instead: javax packages Jakarta EE renamed,
-    WebSecurityConfigurerAdapter, field injection, @MockBean and @SpyBean, JUnit 4, the old
-    @ConstructorBinding, RestTemplate, and auto-configuration registered in spring.factories.
-    Each links to its line.
+    Code Spring has moved past, from the realm's rule catalogue (reference/rules.yml — the SpringRule
+    rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under
+    Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it
+    breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring's documentation.
+    With `target` (a Spring Boot version) it says which findings block that upgrade.
   params:
     project: { type: string, description: "Project key." }
+    target: { type: string, default: "", description: "Spring Boot version you are upgrading to, e.g. 3.5.16; empty for none." }
   cypher: |
+    MATCH (r:SpringRule {kind: 'import'})
     MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
-    WHERE i.name STARTS WITH 'javax.persistence' OR i.name STARTS WITH 'javax.servlet'
-       OR i.name STARTS WITH 'javax.validation' OR i.name STARTS WITH 'javax.annotation.PostConstruct'
-       OR i.name STARTS WITH 'javax.annotation.PreDestroy' OR i.name STARTS WITH 'javax.transaction'
-       OR i.name STARTS WITH 'javax.inject' OR i.name STARTS WITH 'javax.ws.rs' OR i.name STARTS WITH 'javax.mail'
-       OR i.name STARTS WITH 'javax.jms' OR i.name STARTS WITH 'javax.websocket'
-    WITH split(i.name, '.')[0] + '.' + split(i.name, '.')[1] AS pkg, i ORDER BY i.path, i.line
-    WITH pkg, collect(i) AS uses, collect(DISTINCT i.path) AS files
-    RETURN 'jakarta:' + pkg AS id, 'high' AS severity, 'upgrade-blocker' AS category,
-           pkg + ' → ' + replace(pkg, 'javax.', 'jakarta.') + ': ' + toString(size(uses)) + ' import' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END
-             + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END AS title,
-           'Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*; these do not compile there. In: '
-             + reduce(t = '', f IN files[0..8] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1])
-             + CASE WHEN size(files) > 8 THEN ', …' ELSE '' END AS detail,
-           'Rename the imports to ' + replace(pkg, 'javax.', 'jakarta.') + '.* (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta does all of them).' AS fix,
-           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link
+    WHERE i.name STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE i.name STARTS WITH x)
+      AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT i.path CONTAINS 'src/test/')
+    WITH r, i ORDER BY i.path, i.line
+    WITH r, collect(i) AS uses, collect(DISTINCT i.path) AS files
+    RETURN 'rule:' + r.ruleId AS id,
+           r.severity AS severity, r.category AS category, r.title + ': ' + toString(size(uses)) + ' use' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END
+             + ' (' + reduce(t = '', f IN files[0..4] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1]) + CASE WHEN size(files) > 4 THEN ', …' ELSE '' END + ')' AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
     UNION
-    MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]->(t:JavaProjectType)
-    WHERE ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter' OR s ENDS WITH 'WebMvcConfigurerAdapter')
-    RETURN 'adapter:' + t.name AS id, 'high' AS severity, 'upgrade-blocker' AS category,
-           t.simpleName + ' extends ' + [s IN t.extends WHERE s ENDS WITH 'Adapter'][0] AS title,
-           CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter')
-                THEN 'WebSecurityConfigurerAdapter was removed in Spring Security 6 (Spring Boot 3).'
-                ELSE 'WebMvcConfigurerAdapter was removed in Spring Framework 6.' END AS detail,
-           CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter')
-                THEN 'Declare a @Bean SecurityFilterChain filterChain(HttpSecurity http) instead (OpenRewrite recipe org.openrewrite.java.spring.security5.WebSecurityConfigurerAdapter)'
-                ELSE 'implement WebMvcConfigurer directly' END AS fix,
-           t.path AS file, t.line AS line, t.link AS link
-    UNION
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {name: 'Autowired', targetKind: 'field'})
-    RETURN 'field-injection:' + a.owner + '#' + a.targetName AS id, 'medium' AS severity, 'design' AS category,
-           'Field injection: ' + a.owner + '.' + a.targetName AS title,
-           'An @Autowired field hides a dependency, cannot be final, and needs a container to test.' AS detail,
-           'Take it as a constructor parameter (a single constructor needs no @Autowired).' AS fix,
-           a.path AS file, a.line AS line, a.link AS link
-    UNION
+    MATCH (r:SpringRule {kind: 'annotation'})
     MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name IN ['MockBean', 'SpyBean']
-    RETURN 'mockbean:' + a.path + ':' + toString(a.line) AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
-           '@' + a.name + ' on ' + a.targetName AS title,
-           '@MockBean and @SpyBean were deprecated in Spring Boot 3.4 and removed in 4.0.' AS detail,
-           'Use @MockitoBean / @MockitoSpyBean (org.springframework.test.context.bean.override.mockito).' AS fix,
-           a.path AS file, a.line AS line, a.link AS link
+    WHERE a.name = r.pattern AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
+    WITH r, a ORDER BY a.path, a.line
+    WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
+    RETURN 'rule:' + r.ruleId AS id,
+           r.severity AS severity, r.category AS category, r.title + ': ' + toString(size(uses)) + ' use' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END
+             + ' (' + reduce(t = '', f IN files[0..4] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1]) + CASE WHEN size(files) > 4 THEN ', …' ELSE '' END + ')' AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
     UNION
-    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
-    WHERE i.name IN ['org.junit.Test', 'org.junit.runner.RunWith', 'org.junit.Before', 'org.junit.After', 'org.junit.Assert', 'org.junit.BeforeClass']
-    WITH i ORDER BY i.path, i.line
-    WITH collect(DISTINCT i.path) AS files, collect(i) AS uses
-    WHERE size(files) > 0
-    RETURN 'junit4' AS id, 'medium' AS severity, 'testing' AS category,
-           'JUnit 4 in ' + toString(size(files)) + ' test file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END AS title,
-           'Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Spring Boot 3 no longer manages. In: '
-             + reduce(t = '', f IN files[0..8] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1])
-             + CASE WHEN size(files) > 8 THEN ', …' ELSE '' END AS detail,
-           'Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration).' AS fix,
-           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link
+    MATCH (r:SpringRule {kind: 'field-annotation'})
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {targetKind: 'field'})
+    WHERE a.name = r.pattern AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
+    RETURN 'rule:' + r.ruleId + ':' + a.owner + '#' + a.targetName AS id,
+           r.severity AS severity, r.category AS category, r.title + ': ' + split(a.owner, '.')[size(split(a.owner, '.')) - 1] + '.' + a.targetName AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           a.path AS file, a.line AS line, a.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
     UNION
-    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport {name: 'org.springframework.boot.context.properties.ConstructorBinding'})
-    RETURN 'constructor-binding:' + i.path AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
-           'Old @ConstructorBinding in ' + i.path AS title,
-           'Spring Boot 3 moved it to org.springframework.boot.context.properties.bind.ConstructorBinding and no longer needs it on a class with one constructor.' AS detail,
-           'Remove it from the class; keep it, from the new package, only to pick one of several constructors.' AS fix,
-           i.path AS file, i.line AS line, i.link AS link
+    MATCH (r:SpringRule {kind: 'extends'})
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]->(t:JavaProjectType)
+    WHERE ANY(x IN t.extends WHERE x ENDS WITH r.pattern) AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT t.path CONTAINS 'src/test/')
+    RETURN 'rule:' + r.ruleId + ':' + t.name AS id,
+           r.severity AS severity, r.category AS category, t.simpleName + ' ' + r.title AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           t.path AS file, t.line AS line, t.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
     UNION
-    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport {name: 'org.springframework.web.client.RestTemplate'})
-    RETURN 'resttemplate:' + i.path AS id, 'info' AS severity, 'modernize' AS category,
-           'RestTemplate in ' + i.path AS title,
-           'RestTemplate is in maintenance; Spring Framework 6.1 added RestClient, the same synchronous model with a fluent API.' AS detail,
-           'Build a RestClient (RestClient.create() or RestClient.Builder) for new code.' AS fix,
-           i.path AS file, i.line AS line, i.link AS link
-    UNION
-    MATCH (p:JavaProject {key: $project})-[:HAS_FILE]->(f:ProjectFile {fileName: 'spring.factories'})
-    WHERE f.path CONTAINS 'src/main/resources/META-INF/'
-    RETURN 'spring-factories:' + f.path AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
-           'META-INF/spring.factories in ' + coalesce(nullif(f.module, ''), 'the root module') AS title,
-           'Spring Boot 3 no longer reads auto-configurations from spring.factories; any EnableAutoConfiguration entry in it is ignored.' AS detail,
-           'Move each auto-configuration to META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports and annotate it @AutoConfiguration.' AS fix,
-           f.path AS file, 1 AS line, f.link AS link
+    MATCH (r:SpringRule {kind: 'file'})
+    MATCH (p:JavaProject {key: $project})-[:HAS_FILE]->(f:ProjectFile)
+    WHERE f.fileName = r.pattern AND f.path CONTAINS 'src/main/resources/META-INF/'
+    RETURN 'rule:' + r.ruleId + ':' + f.path AS id,
+           r.severity AS severity, r.category AS category, r.title + ' in ' + CASE WHEN f.module = '' THEN 'the root module' ELSE f.module END AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           f.path AS file, 1 AS line, f.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 
 - name: BootLines
   description: >-
