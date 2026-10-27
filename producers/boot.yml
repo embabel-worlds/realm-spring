@@ -1,0 +1,13 @@
+# What Spring Boot itself says, read from its own artifacts. A Spring Boot jar documents every
+# property it binds (with Spring's own deprecation and replacement) and the auto-configurations it
+# registers; a Spring Boot BOM pins the versions of everything it manages.
+- { name: bootProperties,         kind: jar,   emit: configProperties }
+- { name: bootAutoConfigurations, kind: jar,   emit: autoConfigurations }
+- { name: bootManaged,            kind: maven, emit: managed }
+- { name: bootArtifact,           kind: maven, emit: artifact, download: true, sources: false }
+
+# Which versions of an artifact Maven Central (or the operator's repositories) actually publishes.
+# A fix OSV names may be a COMMERCIAL release that never reaches Central — Spring's own lines past
+# their open-source support get patches only from the vendor's repository — so a fix is only
+# recommended when it can be downloaded.
+- { name: publishedVersions, kind: maven, emit: versions }

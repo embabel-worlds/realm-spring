@@ -1,0 +1,22 @@
+# How long a Spring line is supported, from Spring's own site (open-source and commercial end
+# dates), and which Java each Spring Boot line supports, from endoflife.date. A day's cache:
+# these change when a line is released or ends.
+- name: springGenerations
+  kind: remote
+  operation: projectGenerations
+  records: "$._embedded.generations[*]"
+  keyArgs: [project]
+  echoKeyAs: slug
+  maxKeysPerCall: 1
+  project: { name: name, initialReleaseDate: initialReleaseDate, ossSupportEndDate: ossSupportEndDate, commercialSupportEndDate: commercialSupportEndDate }
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+- name: supportCycles
+  kind: remote
+  operation: productCycles
+  records: "$[*]"
+  keyArgs: [product]
+  echoKeyAs: slug
+  maxKeysPerCall: 1
+  project: { cycle: cycle, releaseDate: releaseDate, eol: eol, extendedSupport: extendedSupport, latest: latest, supportedJavaVersions: supportedJavaVersions }
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

@@ -1,0 +1,9 @@
+# A running application's actuator. The key is an endpoint's JSON — fetched by you or your coding
+# agent from your own app, which this appliance cannot reach on a private address — or, on an
+# appliance whose operator allows private addresses, the actuator's URL.
+- { name: runtimeConditions,  kind: actuator, emit: conditions }
+- { name: runtimeBeans,       kind: actuator, emit: beans }
+- { name: runtimeEnvironment, kind: actuator, emit: env }
+- { name: runtimeConfigProps, kind: actuator, emit: configprops }
+- { name: runtimeMappings,    kind: actuator, emit: mappings }
+- { name: runtimeComponents,  kind: actuator, emit: sbom }

@@ -1,0 +1,136 @@
+# FINDINGS. Every view here takes `project` (a repository URL, optionally @ref, or a folder) and
+# returns findings in ONE shape, so the debt inbox is their union and every surface renders them
+# alike: id, severity (critical / high / medium / low / info), category, title, detail, fix,
+# file, line, link. A finding's `id` is stable across reads of the same code, which is what a
+# decision in SpringTriage keys on.
+#
+# Each rule is something Spring itself removed, deprecated or warns about, and each says what to
+# do instead. They read the project's source, settings and build as realm-java-project reads them.
+
+- name: StackCard
+  description: >-
+    What a Spring project runs on: its Spring Boot and Spring Framework versions, the Boot line and
+    when that line's open-source and commercial support end, the Java versions the line supports,
+    its latest patch, and the newest Spring Boot line. The first call for a Spring project.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+    WHERE (d.groupId = 'org.springframework.boot' AND d.artifactId = 'spring-boot')
+       OR (d.groupId = 'org.springframework' AND d.artifactId = 'spring-core')
+    WITH collect(DISTINCT CASE WHEN d.artifactId = 'spring-boot' THEN d.version END) AS boots,
+         collect(DISTINCT CASE WHEN d.artifactId = 'spring-core' THEN d.version END) AS cores
+    WITH [v IN boots WHERE v IS NOT NULL][0] AS bootVersion, [v IN cores WHERE v IS NOT NULL][0] AS frameworkVersion
+    WITH bootVersion, frameworkVersion, split(bootVersion, '.')[0] + '.' + split(bootVersion, '.')[1] AS line
+    MATCH (sp:SpringProduct {slug: 'spring-boot'})-[:HAS_GENERATION]->(g:SpringGeneration)
+    WITH bootVersion, frameworkVersion, line, sp, collect(g) AS gens, toString(date()) AS today
+    MATCH (sp)-[:HAS_CYCLE]->(c:SupportCycle)
+    WITH bootVersion, frameworkVersion, line, gens, today, collect(c) AS cycles
+    WITH bootVersion, frameworkVersion, line, today,
+         [x IN gens WHERE x.name = line + '.x'][0] AS mine,
+         [x IN cycles WHERE x.cycle = line][0] AS myCycle,
+         reduce(n = null, x IN gens | CASE WHEN x.initialReleaseDate <= today
+                AND (n IS NULL OR x.initialReleaseDate > n.initialReleaseDate) THEN x ELSE n END) AS newest
+    RETURN bootVersion, frameworkVersion, line + '.x' AS bootLine,
+           mine.ossSupportEndDate AS ossSupportEnds, mine.commercialSupportEndDate AS commercialSupportEnds,
+           CASE WHEN mine IS NULL THEN 'unknown'
+                WHEN mine.ossSupportEndDate >= today THEN 'supported'
+                WHEN mine.commercialSupportEndDate >= today THEN 'commercial-only'
+                ELSE 'unsupported' END AS support,
+           myCycle.supportedJavaVersions AS javaVersions, myCycle.latest AS latestPatch,
+           newest.name AS newestLine, newest.ossSupportEndDate AS newestSupportEnds
+
+- name: ModernizationFindings
+  description: >-
+    Code Spring has moved past, with what to write instead: javax packages Jakarta EE renamed,
+    WebSecurityConfigurerAdapter, field injection, @MockBean and @SpyBean, JUnit 4, the old
+    @ConstructorBinding, RestTemplate, and auto-configuration registered in spring.factories.
+    Each links to its line.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
+    WHERE i.name STARTS WITH 'javax.persistence' OR i.name STARTS WITH 'javax.servlet'
+       OR i.name STARTS WITH 'javax.validation' OR i.name STARTS WITH 'javax.annotation.PostConstruct'
+       OR i.name STARTS WITH 'javax.annotation.PreDestroy' OR i.name STARTS WITH 'javax.transaction'
+       OR i.name STARTS WITH 'javax.inject' OR i.name STARTS WITH 'javax.ws.rs' OR i.name STARTS WITH 'javax.mail'
+       OR i.name STARTS WITH 'javax.jms' OR i.name STARTS WITH 'javax.websocket'
+    RETURN 'jakarta:' + i.path + ':' + toString(i.line) AS id, 'high' AS severity, 'upgrade-blocker' AS category,
+           'javax → jakarta: ' + i.name AS title,
+           'Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*. This import does not compile there.' AS detail,
+           'import ' + replace(i.name, 'javax.', 'jakarta.') + ' (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta)' AS fix,
+           i.path AS file, i.line AS line, i.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]->(t:JavaProjectType)
+    WHERE ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter' OR s ENDS WITH 'WebMvcConfigurerAdapter')
+    RETURN 'adapter:' + t.name AS id, 'high' AS severity, 'upgrade-blocker' AS category,
+           t.simpleName + ' extends ' + [s IN t.extends WHERE s ENDS WITH 'Adapter'][0] AS title,
+           CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter')
+                THEN 'WebSecurityConfigurerAdapter was removed in Spring Security 6 (Spring Boot 3).'
+                ELSE 'WebMvcConfigurerAdapter was removed in Spring Framework 6.' END AS detail,
+           CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter')
+                THEN 'Declare a @Bean SecurityFilterChain filterChain(HttpSecurity http) instead (OpenRewrite recipe org.openrewrite.java.spring.security5.WebSecurityConfigurerAdapter)'
+                ELSE 'implement WebMvcConfigurer directly' END AS fix,
+           t.path AS file, t.line AS line, t.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {name: 'Autowired', targetKind: 'field'})
+    RETURN 'field-injection:' + a.owner + '#' + a.targetName AS id, 'medium' AS severity, 'design' AS category,
+           'Field injection: ' + a.owner + '.' + a.targetName AS title,
+           'An @Autowired field hides a dependency, cannot be final, and needs a container to test.' AS detail,
+           'Take it as a constructor parameter (a single constructor needs no @Autowired).' AS fix,
+           a.path AS file, a.line AS line, a.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name IN ['MockBean', 'SpyBean']
+    RETURN 'mockbean:' + a.path + ':' + toString(a.line) AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
+           '@' + a.name + ' on ' + a.targetName AS title,
+           '@MockBean and @SpyBean were deprecated in Spring Boot 3.4 and removed in 4.0.' AS detail,
+           'Use @MockitoBean / @MockitoSpyBean (org.springframework.test.context.bean.override.mockito).' AS fix,
+           a.path AS file, a.line AS line, a.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
+    WHERE i.name IN ['org.junit.Test', 'org.junit.runner.RunWith', 'org.junit.Before', 'org.junit.After', 'org.junit.Assert']
+    RETURN 'junit4:' + i.path + ':' + toString(i.line) AS id, 'medium' AS severity, 'testing' AS category,
+           'JUnit 4: ' + i.name AS title,
+           'Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Boot 3 no longer manages.' AS detail,
+           'Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration)' AS fix,
+           i.path AS file, i.line AS line, i.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport {name: 'org.springframework.boot.context.properties.ConstructorBinding'})
+    RETURN 'constructor-binding:' + i.path AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
+           'Old @ConstructorBinding in ' + i.path AS title,
+           'Spring Boot 3 moved it to org.springframework.boot.context.properties.bind.ConstructorBinding and no longer needs it on a class with one constructor.' AS detail,
+           'Remove it from the class; keep it, from the new package, only to pick one of several constructors.' AS fix,
+           i.path AS file, i.line AS line, i.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport {name: 'org.springframework.web.client.RestTemplate'})
+    RETURN 'resttemplate:' + i.path AS id, 'info' AS severity, 'modernize' AS category,
+           'RestTemplate in ' + i.path AS title,
+           'RestTemplate is in maintenance; Spring Framework 6.1 added RestClient, the same synchronous model with a fluent API.' AS detail,
+           'Build a RestClient (RestClient.create() or RestClient.Builder) for new code.' AS fix,
+           i.path AS file, i.line AS line, i.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_FILE]->(f:ProjectFile {fileName: 'spring.factories'})
+    WHERE f.path CONTAINS 'src/main/resources/META-INF/'
+    RETURN 'spring-factories:' + f.path AS id, 'medium' AS severity, 'upgrade-blocker' AS category,
+           'META-INF/spring.factories in ' + coalesce(nullif(f.module, ''), 'the root module') AS title,
+           'Spring Boot 3 no longer reads auto-configurations from spring.factories; any EnableAutoConfiguration entry in it is ignored.' AS detail,
+           'Move each auto-configuration to META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports and annotate it @AutoConfiguration.' AS fix,
+           f.path AS file, 1 AS line, f.link AS link
+
+- name: BootLines
+  description: >-
+    Every Spring Boot line: when its open-source and commercial support end, the Java versions it
+    supports, and its latest patch — what to upgrade to, and what that asks of your Java.
+  cypher: |
+    MATCH (sp:SpringProduct {slug: 'spring-boot'})-[:HAS_GENERATION]->(g:SpringGeneration)
+    WITH sp, g, toString(date()) AS today
+    OPTIONAL MATCH (sp)-[:HAS_CYCLE]->(c:SupportCycle)
+    WHERE c.cycle + '.x' = g.name
+    RETURN g.name AS line, g.initialReleaseDate AS released, g.ossSupportEndDate AS ossSupportEnds,
+           g.commercialSupportEndDate AS commercialSupportEnds, c.latest AS latestPatch, c.supportedJavaVersions AS javaVersions,
+           CASE WHEN g.initialReleaseDate > today THEN 'upcoming'
+                WHEN g.ossSupportEndDate >= today THEN 'supported'
+                WHEN g.commercialSupportEndDate >= today THEN 'commercial-only'
+                ELSE 'unsupported' END AS support
+    ORDER BY released DESC LIMIT 40

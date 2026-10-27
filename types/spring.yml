@@ -1,0 +1,227 @@
+# SPRING, over a project realm-java-project reads. Everything below is VIRTUAL — read when a query
+# reaches it — except SpringTriage, the one thing this realm keeps: what you decided about a finding.
+#
+#   (:SpringProduct {slug:'spring-boot'})-[:HAS_GENERATION]->(g:SpringGeneration)   support dates
+#   (:SpringProduct {slug:'spring-boot'})-[:HAS_CYCLE]->(c:SupportCycle)            Java per line
+#   (d:ProjectDependency)-[:HAS_ADVISORY]->(a:DependencyAdvisory)                    a vulnerability
+#   (a)-[:DESCRIBED_BY]->(x:AdvisoryDetail)   (a)-[:FIXED_IN]->(f:AdvisoryFix)
+#   (j:ProjectJar)-[:DOCUMENTS]->(p:BootProperty)        what a Spring Boot jar binds
+#   (j:ProjectJar)-[:REGISTERS]->(c:BootAutoConfiguration)
+#   (:BootBom {coordinates})-[:PINS]->(v:BootManagedVersion)   what a Spring Boot release pins
+#   (:BootArtifact {coordinates})-[:IS]->(b:BootJar)-[:DOCUMENTS]->(p:BootProperty)   a release's own jars
+#   (:RunningApp {actuator:$json})-[:EVALUATED]->(c:RuntimeCondition)   …BEAN, SETTING, BOUND, MAPS, SHIPS
+
+- name: SpringGeneration
+  visibility: internal
+  userAnchor: false
+  description: "A release line of a Spring project (`3.5.x`) and when its support ends, from spring.io: open-source support, then commercial. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_GENERATION]->."
+  virtualJoins:
+    - { anchorLabel: SpringProduct, relationship: HAS_GENERATION, keyField: slug, recordKeyField: slug, producer: springGenerations }
+  properties:
+    name: { identity: true, description: "The line, e.g. 3.5.x." }
+    initialReleaseDate: "When the line's first release shipped."
+    ossSupportEndDate: "When open-source support ends: no more free patch releases after it."
+    commercialSupportEndDate: "When commercial support ends."
+    slug: "The Spring project, e.g. spring-boot."
+
+- name: SupportCycle
+  visibility: internal
+  userAnchor: false
+  description: "A release cycle of a product from endoflife.date; for Spring Boot it says which Java versions the line supports. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_CYCLE]->."
+  virtualJoins:
+    - { anchorLabel: SpringProduct, relationship: HAS_CYCLE, keyField: slug, recordKeyField: slug, producer: supportCycles }
+  properties:
+    cycle: { identity: true, description: "The cycle, e.g. 3.5." }
+    releaseDate: "When it was released."
+    eol: "When support ends (a date, or false)."
+    extendedSupport: "When extended support ends, if offered."
+    latest: "Its latest release."
+    supportedJavaVersions: "Java versions it supports, e.g. '17 - 25'."
+    slug: "The product."
+
+- name: DependencyAdvisory
+  visibility: internal
+  userAnchor: false
+  description: "A security advisory affecting one exact version of a dependency, from deps.dev. Its title and CVE ids are on DESCRIBED_BY, the versions that fix it on FIXED_IN. Reach it from a ProjectDependency or a RuntimeComponent via HAS_ADVISORY."
+  virtualJoins:
+    - { anchorLabel: ProjectDependency, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories }
+    - { anchorLabel: RuntimeComponent, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories }
+  properties:
+    advisoryId: { identity: true, description: "GHSA-… id." }
+    coordinates: "The artifact version it affects, groupId:artifactId:version."
+
+- name: AdvisoryDetail
+  visibility: internal
+  userAnchor: false
+  description: "What an advisory is: title, CVE aliases, CVSS 3 score and its page."
+  virtualJoins:
+    - { anchorLabel: DependencyAdvisory, relationship: DESCRIBED_BY, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryDetails }
+  properties:
+    advisoryId: { identity: true, description: "GHSA-… id." }
+    title: "What it is."
+    aliases: { cardinality: LIST, description: "CVE ids and other names." }
+    cvss3Score: { type: double, description: "CVSS 3 base score, 0–10." }
+    url: "Its page."
+
+- name: AdvisoryFix
+  visibility: internal
+  userAnchor: false
+  description: "A version that fixes an advisory, one per maintenance line affected (from OSV). Upgrade to the fix on your own line — the one that shares your major.minor — when there is one."
+  virtualJoins:
+    - { anchorLabel: DependencyAdvisory, relationship: FIXED_IN, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryFixes }
+  properties:
+    fixed: { identity: true, description: "A fixed version." }
+    advisoryId: "The advisory."
+
+- name: BootProperty
+  visibility: internal
+  userAnchor: false
+  description: "A configuration property a Spring Boot jar documents (spring-configuration-metadata.json): type, default, description, and Spring's own deprecation — `deprecationLevel` warning (still binds) or error (removed), with its `replacement`. Reach it from a ProjectJar or a BootJar via DOCUMENTS."
+  virtualJoins:
+    - { anchorLabel: ProjectJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties }
+    - { anchorLabel: BootJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties }
+  properties:
+    id: { identity: true, description: "Jar and property name." }
+    name: "The property, e.g. spring.data.redis.host."
+    type: "Its Java type; a java.util.Map type takes keys below its name."
+    description: "What it does."
+    defaultValue: "Its default."
+    sourceType: "The @ConfigurationProperties class that binds it."
+    deprecated: { type: boolean, description: "Deprecated." }
+    deprecationLevel: "warning (still binds) or error (removed)."
+    replacement: "The property to use instead."
+    deprecationReason: "Why."
+    deprecatedSince: "Since which version."
+    jarPath: "The jar that documents it."
+
+- name: BootAutoConfiguration
+  visibility: internal
+  userAnchor: false
+  description: "An auto-configuration a Spring Boot jar registers."
+  virtualJoins:
+    - { anchorLabel: ProjectJar, relationship: REGISTERS, keyField: jarPath, recordKeyField: anchorKey, producer: bootAutoConfigurations }
+  properties:
+    id: { identity: true, description: "Jar and class." }
+    name: "The auto-configuration class."
+    simpleName: "Its simple name."
+    registeredIn: "imports (Boot 2.7+) or spring.factories."
+
+- name: BootManagedVersion
+  visibility: internal
+  userAnchor: false
+  description: "A version a Spring Boot release's BOM pins. Pin the BOM by its coordinates: (:BootBom {coordinates:'org.springframework.boot:spring-boot-dependencies:3.5.6'})-[:PINS]->."
+  virtualJoins:
+    - { anchorLabel: BootBom, relationship: PINS, keyField: coordinates, recordKeyField: anchorKey, producer: bootManaged }
+  properties:
+    id: { identity: true, description: "BOM and coordinates." }
+    coordinates: "groupId:artifactId:version."
+    groupId: "Maven groupId."
+    artifactId: "Maven artifactId."
+    version: "The version that Spring Boot release pins."
+
+- name: BootJar
+  visibility: internal
+  userAnchor: false
+  description: "A Spring Boot artifact of one release, downloaded so its jar can be read. Pin it by coordinates — (:BootArtifact {coordinates:'org.springframework.boot:spring-boot-autoconfigure:3.5.6'})-[:IS]->(b:BootJar) — or reach every jar a release pins from its BOM."
+  virtualJoins:
+    - { anchorLabel: BootArtifact, relationship: IS, keyField: coordinates, recordKeyField: anchorKey, producer: bootArtifact }
+    - { anchorLabel: BootManagedVersion, relationship: IS, keyField: coordinates, recordKeyField: anchorKey, producer: bootArtifact,
+        description: "(:BootBom {coordinates})-[:PINS]->(v:BootManagedVersion)-[:IS]->(b:BootJar): a release's own Spring Boot jars, downloaded" }
+  properties:
+    id: { identity: true, description: "Coordinates." }
+    coordinates: "groupId:artifactId:version."
+    version: "Version."
+    jarPath: "The jar, in the world's repository."
+
+- name: RuntimeCondition
+  visibility: internal
+  userAnchor: false
+  description: "A condition Spring evaluated for a configuration in a running app (/actuator/conditions), with Spring's own message. A configuration that did not apply has configurationMatched false; its notMatched rows say why. Anchor: (:RunningApp {actuator: <the endpoint's JSON, or its URL>})-[:EVALUATED]->."
+  virtualJoins:
+    - { anchorLabel: RunningApp, relationship: EVALUATED, keyField: actuator, recordKeyField: anchorKey, producer: runtimeConditions }
+  properties:
+    key: { identity: true, description: "Context, configuration, outcome and index." }
+    configuration: "The configuration, e.g. DataSourceAutoConfiguration or X#beanMethod."
+    configurationClass: "The class."
+    beanMethod: "The @Bean method, for a bean method's conditions."
+    condition: "The condition, e.g. OnClassCondition."
+    message: "Spring's own explanation."
+    outcome: "matched, notMatched or unconditional."
+    configurationMatched: { type: boolean, description: "Whether the configuration applied." }
+
+- name: RuntimeBean
+  visibility: internal
+  userAnchor: false
+  description: "A bean in a running app (/actuator/beans): type, the class a proxy wraps, scope, where it was defined, what it depends on. Anchor: (:RunningApp {actuator})-[:HAS_BEAN]->."
+  virtualJoins:
+    - { anchorLabel: RunningApp, relationship: HAS_BEAN, keyField: actuator, recordKeyField: anchorKey, producer: runtimeBeans }
+  properties:
+    key: { identity: true, description: "Context and bean name." }
+    name: "Bean name."
+    type: "Its type."
+    targetType: "The class it is, behind a CGLIB proxy."
+    simpleType: "Simple name of targetType."
+    scope: "singleton, prototype, …"
+    resource: "Where it was defined."
+    dependencies: { cardinality: LIST, description: "Beans it depends on." }
+
+- name: RuntimeSetting
+  visibility: internal
+  userAnchor: false
+  description: "A property in a running app's environment (/actuator/env), per property source in precedence order; `effective` marks the source whose value Spring uses. Anchor: (:RunningApp {actuator})-[:HAS_SETTING]->."
+  virtualJoins:
+    - { anchorLabel: RunningApp, relationship: HAS_SETTING, keyField: actuator, recordKeyField: anchorKey, producer: runtimeEnvironment }
+  properties:
+    key: { identity: true, description: "Source index and name." }
+    name: "Property name."
+    value: "Its value ('******' when masked)."
+    source: "The property source."
+    origin: "Where in it, e.g. 'class path resource [application.yml] - 3:9'."
+    effective: { type: boolean, description: "The value Spring uses." }
+    masked: { type: boolean, description: "Masked by the app." }
+
+- name: RuntimeMapping
+  visibility: internal
+  userAnchor: false
+  description: "A request mapping in a running app (/actuator/mappings) and the handler method it reaches. Anchor: (:RunningApp {actuator})-[:MAPS]->."
+  virtualJoins:
+    - { anchorLabel: RunningApp, relationship: MAPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeMappings }
+  properties:
+    key: { identity: true, description: "Context, dispatcher and index." }
+    patterns: { cardinality: LIST, description: "URL patterns." }
+    methods: { cardinality: LIST, description: "HTTP methods." }
+    className: "Handler class."
+    methodName: "Handler method."
+
+- name: RuntimeComponent
+  visibility: internal
+  userAnchor: false
+  description: "A component of what actually shipped (/actuator/sbom/application), as Maven coordinates — so it reaches HAS_ADVISORY like a project dependency. Anchor: (:RunningApp {actuator})-[:SHIPS]->."
+  virtualJoins:
+    - { anchorLabel: RunningApp, relationship: SHIPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeComponents }
+  properties:
+    key: { identity: true, description: "purl." }
+    coordinates: "groupId:artifactId:version."
+    licenses: { cardinality: LIST, description: "Licences." }
+    isApplication: { type: boolean, description: "The application itself." }
+
+- name: PublishedVersion
+  visibility: internal
+  userAnchor: false
+  description: "A version of an artifact the repositories this appliance searches (Maven Central unless the operator configured others) publish. Pin the artifact by groupId:artifactId: (:PublishedArtifact {ga:'org.springframework:spring-core'})-[:PUBLISHED]->(v:PublishedVersion). A fix that is not here is a commercial-only release."
+  virtualJoins:
+    - { anchorLabel: PublishedArtifact, relationship: PUBLISHED, keyField: ga, recordKeyField: anchorKey, producer: publishedVersions, maxFanoutTotal: 60000 }
+  properties:
+    id: { identity: true, description: "Coordinates." }
+    version: "The version."
+    latest: { type: boolean, description: "The highest published." }
+
+# The one thing this realm keeps: what you decided about a finding in the debt inbox.
+- name: SpringTriage
+  description: "A decision about one finding in a project's debt inbox: done, snoozed, or won't fix, with a note. `findingId` is the finding's id as the DebtInbox view gives it."
+  properties:
+    findingId: { identity: true, description: "The finding's id." }
+    project: "The project key the finding was raised for."
+    status: "done, snoozed or wontfix."
+    title: "The finding's title when it was decided, so the decision reads on its own."
+    note: "Why."

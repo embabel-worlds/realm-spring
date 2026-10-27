@@ -1,0 +1,35 @@
+# Vulnerabilities in what a project resolves. deps.dev names the advisories affecting one exact
+# version of an artifact; each advisory's title, CVE ids and CVSS come from deps.dev, and the
+# versions that fix it from OSV. Every call is a GET and keyless; a week's cache for a version
+# (published versions do not change), a day's for an advisory (a fix can be added).
+- name: versionAdvisories
+  kind: remote
+  operation: mavenVersion
+  records: "$.advisoryKeys[*]"
+  keyArgs: [group, artifact, version]
+  keySplit: ":"
+  echoKeyAs: coordinates
+  maxKeysPerCall: 1
+  batchSafe: false
+  project: { advisoryId: id }
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 86400 }
+
+- name: advisoryDetails
+  kind: remote
+  operation: advisory
+  records: "$"
+  keyArgs: [id]
+  echoKeyAs: advisoryId
+  maxKeysPerCall: 1
+  project: { title: title, aliases: aliases, cvss3Score: cvss3Score, url: url }
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+- name: advisoryFixes
+  kind: remote
+  operation: vulnerability
+  records: "$.affected[*].ranges[*].events[?(@.fixed)]"
+  keyArgs: [id]
+  echoKeyAs: advisoryId
+  maxKeysPerCall: 1
+  project: { fixed: fixed }
+  cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

@@ -1,0 +1,55 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "start.spring.io",
+  "version": "1",
+  "description": "The Spring Initializr's catalogue: every starter it offers, grouped, with the Spring Boot versions it supports. Keyless; answers in JSON only to the Accept header the realm's apis.yml sends."
+ },
+ "servers": [
+  {
+   "url": "https://start.spring.io"
+  }
+ ],
+ "paths": {
+  "/": {
+   "get": {
+    "operationId": "initializrMetadata",
+    "summary": "The Initializr catalogue",
+    "description": "`dependencies.values[]` are groups `{name, values: [{id, name, description, versionRange?}]}`; `bootVersion.values[]` the Spring Boot versions offered, `bootVersion.default` the recommended one.",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/actuator/info": {
+   "get": {
+    "operationId": "initializrInfo",
+    "summary": "Which version of each BOM fits which Spring Boot",
+    "description": "`bom-ranges`: per BOM (spring-cloud, spring-ai, \u2026), each of its versions mapped to the Spring Boot range it fits, e.g. `{\"2025.1.0\": \"Spring Boot >=4.0.0 and <4.1.0-M1\"}`.",
+    "parameters": [],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,93 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "deps.dev",
+  "version": "1",
+  "description": "Google's Open Source Insights, keyless; deps.dev permits caching. One version of a Maven artifact: its licences and the advisories that affect it; one advisory: its title, CVE aliases and CVSS score."
+ },
+ "servers": [
+  {
+   "url": "https://api.deps.dev"
+  }
+ ],
+ "paths": {
+  "/v3/advisories/{id}": {
+   "get": {
+    "operationId": "advisory",
+    "summary": "One security advisory",
+    "description": "`{advisoryKey: {id}, url, title, aliases: [CVE ids], cvss3Score, cvss3Vector}`.",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Advisory id, e.g. GHSA-\u2026."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/v3/systems/maven/packages/{group}:{artifact}/versions/{version}": {
+   "get": {
+    "operationId": "mavenVersion",
+    "summary": "One version of a Maven artifact",
+    "description": "`{versionKey, publishedAt, licenses: [SPDX], advisoryKeys: [{id}], links}` for one Maven artifact version, named groupId:artifactId.",
+    "parameters": [
+     {
+      "name": "group",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "groupId."
+     },
+     {
+      "name": "artifact",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "artifactId."
+     },
+     {
+      "name": "version",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Exact version."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

@@ -1,0 +1,21 @@
+name: spring
+description: |
+  Your Spring application, explained before anything is changed — free, and for every Spring
+  developer. Point it at a project (a GitHub repository, or a folder of yours) and it reads the
+  code, the build and the configuration where they live: the beans you declare and under which
+  profiles, the settings Spring Boot does not recognise or has deprecated, the APIs that block an
+  upgrade (javax, WebSecurityConfigurerAdapter, field injection, @MockBean, JUnit 4, …), the
+  versions you override against Spring Boot's own, the vulnerabilities in what you resolve and the
+  version that fixes each, and how long your Spring Boot line is still supported. Every finding
+  links to its line and lands in a debt inbox you can work through.
+
+  Give it a running application's actuator output and it explains the runtime too: why a bean
+  was not created, in Spring's own words, which property source won, and what actually shipped.
+
+  Not affiliated with or endorsed by the Spring team or Broadcom. Built on realm-java-project,
+  which it requires, and the appliance's `actuator`, `jar` and `maven` producer kinds.
+version: 0.1.0
+maturity: experimental
+realmLabel: Spring
+author: Embabel
+tags: [spring, spring-boot, java, upgrade, cve, configuration]

@@ -1,0 +1,230 @@
+# What a Spring project declares and how it is configured, and the findings that come from its
+# configuration, its dependencies and its versions. Every view takes `project`; the findings come
+# in the shape findings.yml describes, so the debt inbox is their union.
+
+- name: Beans
+  description: >-
+    Every bean the project's source declares: classes annotated @Component, @Service,
+    @Repository, @Controller, @RestController or @Configuration, and @Bean methods — each with the
+    profiles and conditions it is declared under, and a link to its line. What the source says;
+    a running app's RuntimeBeans says what was actually created.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice']
+    WITH p, a
+    OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(o:JavaProjectAnnotation)
+    WHERE (o.targetId = a.targetId OR (a.targetKind = 'method' AND o.targetKind = 'type' AND o.targetName = a.owner))
+      AND (o.name = 'Profile' OR o.name STARTS WITH 'Conditional')
+    WITH a, collect(DISTINCT CASE WHEN o.name = 'Profile' THEN o.value END) AS profiles,
+         collect(DISTINCT CASE WHEN o.name STARTS WITH 'Conditional' THEN o.text END) AS conditions
+    RETURN CASE WHEN a.name = 'Bean' THEN a.owner + '#' + a.targetName ELSE a.targetName END AS bean,
+           CASE WHEN a.name = 'Bean' THEN '@Bean method' ELSE '@' + a.name END AS declaredBy,
+           [x IN profiles WHERE x IS NOT NULL] AS profiles, [x IN conditions WHERE x IS NOT NULL] AS conditions,
+           a.module AS module, a.path AS file, a.line AS line, a.link AS link
+    ORDER BY declaredBy, bean LIMIT 2000
+
+- name: Profiles
+  description: >-
+    Every Spring profile the project uses and where: @Profile on classes and @Bean methods,
+    application-<profile> files, and YAML documents activated on a profile.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {name: 'Profile'})
+    UNWIND a.values AS profile
+    RETURN profile, 'code' AS where, coalesce(a.owner + '#' + a.targetName, a.targetName) AS what, a.path AS file, a.line AS line, a.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_FILE]->(f:ProjectFile)
+    WHERE f.fileName STARTS WITH 'application-' AND f.extension IN ['yml', 'yaml', 'properties']
+    RETURN split(split(f.fileName, 'application-')[1], '.')[0] AS profile, 'file' AS where, f.fileName AS what, f.path AS file, 1 AS line, f.link AS link
+    UNION
+    MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
+    RETURN s.value AS profile, 'document' AS where, s.fileName + ' document ' + toString(s.document) AS what, s.path AS file, s.line AS line, s.link AS link
+
+- name: ConfigurationProblems
+  description: >-
+    Settings in the project's application*.yml / .properties that the Spring Boot it runs does not
+    bind (a typo, or a property from another version), and settings it has deprecated — checked
+    against what the project's own Spring Boot jars document. Keys under the project's own
+    @ConfigurationProperties prefixes, or read by @Value, are the project's and are not flagged.
+    Downloads the project's Spring Boot jars the first time.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
+    WHERE j.groupId = 'org.springframework.boot' AND j.jarPath IS NOT NULL
+    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
+    WITH p, collect(bp) AS props
+    WITH p, props, [x IN props | x.name] AS known,
+         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | x.name] AS open
+    OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
+    WHERE cp.name = 'ConfigurationProperties' OR cp.name = 'Value'
+    WITH p, props, known, open,
+         collect(DISTINCT CASE WHEN cp.name = 'ConfigurationProperties'
+                   THEN coalesce([x IN cp.attributes WHERE x STARTS WITH 'prefix=' | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
+         collect(DISTINCT CASE WHEN cp.name = 'Value' THEN split(split(split(cp.value, '${')[1], '}')[0], ':')[0] END) AS valueKeys
+    MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources' AND (s.fileName STARTS WITH 'application' OR s.fileName STARTS WITH 'bootstrap')
+      AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
+    WITH s, props, known, open, [x IN ownPrefixes WHERE x IS NOT NULL] AS ownPrefixes, [x IN valueKeys WHERE x IS NOT NULL] AS valueKeys,
+         split(s.name, '[')[0] AS base
+    WITH s, base, ownPrefixes, valueKeys, known, open, [x IN props WHERE x.name = base][0] AS match
+    WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
+      AND NOT ANY(x IN valueKeys WHERE base = x)
+      AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
+      AND (match IS NULL OR match.deprecated)
+    RETURN 'config:' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
+           CASE WHEN match IS NULL THEN 'medium' WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
+           'configuration' AS category,
+           CASE WHEN match IS NULL THEN 'Spring Boot binds no property ' + s.name
+                WHEN match.deprecationLevel = 'error' THEN s.name + ' no longer binds'
+                ELSE s.name + ' is deprecated' END AS title,
+           CASE WHEN match IS NULL THEN 'Nothing in the Spring Boot jars this project resolves documents it, and no @ConfigurationProperties or @Value of the project reads it: a typo, or a property from another Spring Boot version, does nothing.'
+                WHEN match.deprecationLevel = 'error' THEN 'Spring Boot removed it' + coalesce(' in ' + match.deprecatedSince, '') + ': the setting is silently ignored.' + coalesce(' ' + match.deprecationReason, '')
+                ELSE coalesce(match.deprecationReason, 'Deprecated') + coalesce(' (since ' + match.deprecatedSince + ')', '') + '; it still binds, for now.' END AS detail,
+           CASE WHEN match IS NULL THEN 'Check the spelling against the Spring Boot reference, or remove it.'
+                WHEN match.replacement IS NOT NULL THEN 'Use ' + match.replacement + ' instead.'
+                ELSE 'Remove it.' END AS fix,
+           s.path AS file, s.line AS line, s.link AS link
+    LIMIT 500
+
+- name: UpgradeConfiguration
+  description: >-
+    Settings in the project that the target Spring Boot version removed or renamed, each with the
+    property to use there — read from the target release's own jars, which document every property
+    they dropped with its replacement. `target` is a Spring Boot version, e.g. 3.5.16 or 4.1.2.
+    Downloads the target's Spring Boot jars the first time.
+  params:
+    project: { type: string, description: "Project key." }
+    target: { type: string, description: "Target Spring Boot version, e.g. 3.5.16." }
+  cypher: |
+    MATCH (bom:BootBom {coordinates: 'org.springframework.boot:spring-boot-dependencies:' + $target})-[:PINS]->(v:BootManagedVersion)
+    WHERE v.groupId = 'org.springframework.boot' AND v.artifactId STARTS WITH 'spring-boot'
+      AND NOT v.artifactId CONTAINS 'starter' AND NOT v.artifactId CONTAINS 'test' AND NOT v.artifactId ENDS WITH '-docs'
+    MATCH (v)-[:IS]->(b:BootJar)-[:DOCUMENTS]->(bp:BootProperty)
+    WHERE bp.deprecated
+    WITH collect(bp) AS dropped
+    MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources' AND (s.fileName STARTS WITH 'application' OR s.fileName STARTS WITH 'bootstrap')
+    WITH s, [x IN dropped WHERE x.name = split(s.name, '[')[0]][0] AS match
+    WHERE match IS NOT NULL
+    RETURN 'upgrade-config:' + $target + ':' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
+           CASE WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
+           'upgrade-blocker' AS category,
+           CASE WHEN match.deprecationLevel = 'error' THEN s.name + ' is gone in Spring Boot ' + $target
+                ELSE s.name + ' is deprecated in Spring Boot ' + $target END AS title,
+           coalesce(match.deprecationReason + '. ', '') + CASE WHEN match.deprecationLevel = 'error' THEN 'It no longer binds there: the setting is silently ignored.' ELSE 'It still binds, for now.' END AS detail,
+           CASE WHEN match.replacement IS NOT NULL THEN 'Rename it to ' + match.replacement + '.' ELSE 'Remove it.' END AS fix,
+           s.path AS file, s.line AS line, s.link AS link
+    LIMIT 500
+
+- name: Vulnerabilities
+  description: >-
+    Security advisories affecting the exact versions the project resolves, worst first: the
+    dependency, the advisory and its CVE ids, its CVSS score, and the fixed version on your own
+    line (same major.minor) when there is one — else the nearest fix above it.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+    WHERE d.depth > 0
+    WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + ':' + d.artifactId AS artifact, head(collect(d)) AS d
+    MATCH (d)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
+    OPTIONAL MATCH (a)-[:FIXED_IN]->(f:AdvisoryFix)
+    WITH coordinates, version, artifact, a, x, collect(f.fixed) AS fixes,
+         split(version, '.')[0] + '.' + split(version, '.')[1] AS line
+    WITH coordinates, version, artifact, a, x, fixes, line,
+         [v IN fixes WHERE split(v, '.')[0] + '.' + split(v, '.')[1] = line][0] AS onLine
+    RETURN 'cve:' + coordinates + ':' + a.advisoryId AS id,
+           CASE WHEN x.cvss3Score >= 9 THEN 'critical' WHEN x.cvss3Score >= 7 THEN 'high' WHEN x.cvss3Score >= 4 THEN 'medium' ELSE 'low' END AS severity,
+           'vulnerability' AS category,
+           artifact + ' ' + version + ': ' + x.title AS title,
+           a.advisoryId + coalesce(' / ' + [y IN x.aliases WHERE y STARTS WITH 'CVE-'][0], '') + ', CVSS ' + toString(x.cvss3Score) AS detail,
+           CASE WHEN onLine IS NOT NULL THEN 'Upgrade to ' + onLine + ' (same line).'
+                WHEN size(fixes) > 0 THEN 'Fixed in ' + reduce(s = '', v IN fixes | s + CASE WHEN s = '' THEN '' ELSE ', ' END + v) + ' — no fix on your ' + line + ' line.'
+                ELSE 'No fixed version is published yet.' END AS fix,
+           coordinates AS file, 0 AS line, x.url AS link, x.cvss3Score AS cvss
+    ORDER BY cvss DESC LIMIT 500
+
+- name: VulnerableDependencies
+  description: >-
+    One finding per vulnerable dependency rather than per advisory: how many advisories affect the
+    exact version resolved, the worst CVSS, and the one upgrade on your own line (same major.minor)
+    that fixes every advisory that has a fix there — the unit of work a developer actually does.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+    WHERE d.depth > 0
+    WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + ':' + d.artifactId AS artifact, head(collect(d)) AS d
+    MATCH (d)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
+    OPTIONAL MATCH (a)-[:FIXED_IN]->(f:AdvisoryFix)
+    WITH coordinates, version, artifact, a, x, collect(f.fixed) AS fixes, split(version, '.')[0] + '.' + split(version, '.')[1] AS line
+    OPTIONAL MATCH (:PublishedArtifact {ga: artifact})-[:PUBLISHED]->(pv:PublishedVersion)
+    WITH coordinates, version, artifact, a, x, fixes, line, collect(pv.version) AS published
+    WITH coordinates, version, artifact, a, x, line, published,
+         [v IN fixes WHERE split(v, '.')[0] + '.' + split(v, '.')[1] = line][0] AS onLine
+    WITH coordinates, version, artifact, line, published, count(a) AS advisories, max(x.cvss3Score) AS worst,
+         collect(onLine) AS onLineFixes, collect(CASE WHEN x.cvss3Score >= 9 THEN 1 END) AS crit
+    WITH coordinates, version, artifact, line, advisories, worst, size([c IN crit WHERE c IS NOT NULL]) AS critical,
+         [v IN onLineFixes WHERE v IS NOT NULL] AS fixed, [v IN onLineFixes WHERE v IS NOT NULL AND v IN published] AS downloadable,
+         size(published) > 0 AS knowsPublished
+    WITH coordinates, version, artifact, line, advisories, worst, critical, fixed, downloadable, knowsPublished,
+         reduce(best = null, v IN (CASE WHEN knowsPublished THEN downloadable ELSE fixed END) |
+           CASE WHEN best IS NULL OR [n IN [x IN split(v, '.') | toInteger(x)] WHERE n IS NOT NULL] > [n IN [x IN split(best, '.') | toInteger(x)] WHERE n IS NOT NULL] THEN v ELSE best END) AS upgradeTo,
+         reduce(best = null, v IN fixed |
+           CASE WHEN best IS NULL OR [n IN [x IN split(v, '.') | toInteger(x)] WHERE n IS NOT NULL] > [n IN [x IN split(best, '.') | toInteger(x)] WHERE n IS NOT NULL] THEN v ELSE best END) AS anyFix
+    WITH coordinates, version, artifact, line, advisories, worst, critical, upgradeTo, anyFix, size(fixed) AS fixedOnLine,
+         CASE WHEN upgradeTo IS NULL THEN 0 ELSE size([v IN fixed WHERE [n IN [x IN split(v, '.') | toInteger(x)] WHERE n IS NOT NULL] <= [n IN [x IN split(upgradeTo, '.') | toInteger(x)] WHERE n IS NOT NULL]]) END AS coveredBy
+    RETURN 'vulnerable:' + coordinates AS id,
+           CASE WHEN worst >= 9 THEN 'critical' WHEN worst >= 7 THEN 'high' WHEN worst >= 4 THEN 'medium' ELSE 'low' END AS severity,
+           'vulnerability' AS category,
+           artifact + ' ' + version + ': ' + toString(advisories) + ' advisor' + CASE WHEN advisories = 1 THEN 'y' ELSE 'ies' END
+             + CASE WHEN critical > 0 THEN ' (' + toString(critical) + ' critical)' ELSE '' END AS title,
+           'Worst CVSS ' + toString(worst) + '. ' + toString(fixedOnLine) + ' of ' + toString(advisories) + ' are fixed on your ' + line + ' line'
+             + CASE WHEN anyFix IS NOT NULL AND anyFix <> coalesce(upgradeTo, '') THEN '; the fix in ' + anyFix + ' is a commercial-only release, not on Maven Central' ELSE '' END + '.' AS detail,
+           CASE WHEN upgradeTo IS NOT NULL THEN 'Upgrade to ' + upgradeTo + ' — fixes ' + toString(coveredBy) + ' of ' + toString(advisories)
+                  + CASE WHEN coveredBy < advisories THEN '; the rest need a newer line (see the Upgrade tab).' ELSE '.' END
+                WHEN anyFix IS NOT NULL THEN 'No downloadable fix on your ' + line + ' line (' + anyFix + ' is commercial-only): move to a newer line (see the Upgrade tab).'
+                ELSE 'No fix on your ' + line + ' line: move to a newer line (see the Upgrade tab).' END AS fix,
+           coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
+    ORDER BY cvss DESC LIMIT 500
+
+- name: VersionOverrides
+  description: >-
+    Where the project's build pins a different version than the Spring Boot it runs would — a
+    `<jackson-bom.version>` property, a hand-written version on a managed dependency — so a
+    patch Spring Boot ships for it never arrives. Compared against the Spring Boot release's own BOM.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(boot:ProjectDependency)
+    WHERE boot.groupId = 'org.springframework.boot' AND boot.artifactId = 'spring-boot'
+    WITH p, head(collect(boot.version)) AS bootVersion
+    MATCH (bom:BootBom {coordinates: 'org.springframework.boot:spring-boot-dependencies:' + bootVersion})-[:PINS]->(v:BootManagedVersion)
+    WITH p, bootVersion, collect(v) AS pins
+    MATCH (p)-[:MANAGES]->(m:ProjectManagedVersion)
+    WITH bootVersion, m, [x IN pins WHERE x.groupId = m.groupId AND x.artifactId = m.artifactId][0] AS pin
+    WHERE pin IS NOT NULL AND pin.version <> m.version
+    WITH bootVersion, m.version AS mine, pin.version AS boots, collect(DISTINCT m.groupId) AS groups, count(*) AS artifacts
+    WITH bootVersion, mine, boots, groups, artifacts, reduce(m = head(groups), g IN groups | CASE WHEN g < m THEN g ELSE m END) AS first
+    RETURN 'override:' + mine + ':' + boots + ':' + first AS id, 'medium' AS severity, 'dependencies' AS category,
+           first + CASE WHEN size(groups) > 1 THEN ' and ' + toString(size(groups) - 1) + ' related group(s)' ELSE '' END
+             + ' pinned to ' + mine + ' (Spring Boot ' + bootVersion + ' manages ' + boots + ')' AS title,
+           'Overrides ' + toString(artifacts) + ' managed artifact(s) in ' + reduce(s = '', g IN groups[0..5] | s + CASE WHEN s = '' THEN '' ELSE ', ' END + g)
+             + '. Patches Spring Boot ships for them do not reach this build.' AS detail,
+           'Remove the version override and take ' + boots + ' from Spring Boot, unless you pinned it on purpose (then note why).' AS fix,
+           'pom.xml' AS file, 0 AS line, null AS link
+
+- name: Triage
+  description: >-
+    What has been decided about this project's findings: done, snoozed or won't fix, with notes.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (t:SpringTriage {project: $project})
+    RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
+    LIMIT 2000

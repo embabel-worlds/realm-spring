@@ -1,0 +1,48 @@
+# A running application, explained. Each view takes `actuator`: the JSON of one actuator endpoint
+# (fetch it from your app — curl localhost:8080/actuator/conditions — and paste it), or, on an
+# appliance whose operator allows private addresses, the actuator's URL (http://host:8080/actuator).
+
+- name: WhyNotApplied
+  description: >-
+    Why each auto-configuration or @Bean method did NOT apply in a running app, in Spring's own
+    words — "why isn't my bean created". Takes /actuator/conditions.
+  params:
+    actuator: { type: string, description: "The /actuator/conditions JSON, or the actuator URL." }
+  cypher: |
+    MATCH (:RunningApp {actuator: $actuator})-[:EVALUATED]->(c:RuntimeCondition {configurationMatched: false, outcome: 'notMatched'})
+    RETURN c.configuration AS configuration, c.beanMethod AS beanMethod, c.condition AS condition, c.message AS why
+    ORDER BY configuration LIMIT 2000
+
+- name: RuntimeBeans
+  description: >-
+    The beans a running app actually created — name, the class behind any proxy, scope, where it
+    was defined and what it depends on. Takes /actuator/beans.
+  params:
+    actuator: { type: string, description: "The /actuator/beans JSON, or the actuator URL." }
+  cypher: |
+    MATCH (:RunningApp {actuator: $actuator})-[:HAS_BEAN]->(b:RuntimeBean)
+    RETURN b.name AS bean, b.targetType AS type, b.scope AS scope, b.resource AS definedIn, b.dependencies AS dependsOn
+    ORDER BY type LIMIT 5000
+
+- name: EffectiveSettings
+  description: >-
+    For each property in a running app, which property source's value won and where it came
+    from (file and line, environment variable, system property). Takes /actuator/env.
+  params:
+    actuator: { type: string, description: "The /actuator/env JSON, or the actuator URL." }
+  cypher: |
+    MATCH (:RunningApp {actuator: $actuator})-[:HAS_SETTING]->(s:RuntimeSetting {effective: true})
+    RETURN s.name AS property, s.value AS value, s.source AS source, s.origin AS origin, s.masked AS masked
+    ORDER BY property LIMIT 5000
+
+- name: ShippedVulnerabilities
+  description: >-
+    Advisories against what a running app actually shipped, from its SBOM. Takes
+    /actuator/sbom/application.
+  params:
+    actuator: { type: string, description: "The /actuator/sbom/application JSON, or the actuator URL." }
+  cypher: |
+    MATCH (:RunningApp {actuator: $actuator})-[:SHIPS]->(c:RuntimeComponent)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
+    RETURN c.coordinates AS component, a.advisoryId AS advisory, [y IN x.aliases WHERE y STARTS WITH 'CVE-'][0] AS cve,
+           x.cvss3Score AS cvss, x.title AS title, x.url AS link
+    ORDER BY cvss DESC LIMIT 1000

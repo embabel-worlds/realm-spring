@@ -1,0 +1,34 @@
+# Five keyless sources, nothing to configure. Each answers what Spring developers ask most:
+# is my line still supported, which starter, which Java, am I vulnerable and what fixes it.
+- url: spring-io.json
+  name: spring_io
+  type: openapi
+  auth: none
+  operation-ids: [projectGenerations, projectReleases]
+
+# The Initializr answers JSON only to its own media type; anything else gets the web page.
+- url: initializr.json
+  name: initializr
+  type: openapi
+  auth: none
+  headers:
+    Accept: "application/vnd.initializr.v2.2+json"
+  operation-ids: [initializrMetadata, initializrInfo]
+
+- url: endoflife.json
+  name: endoflife
+  type: openapi
+  auth: none
+  operation-ids: [productCycles]
+
+- url: deps-dev.json
+  name: deps_dev_maven
+  type: openapi
+  auth: none
+  operation-ids: [mavenVersion, advisory]
+
+- url: osv.json
+  name: osv
+  type: openapi
+  auth: none
+  operation-ids: [vulnerability]

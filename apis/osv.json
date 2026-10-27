@@ -1,0 +1,45 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "OSV",
+  "version": "1",
+  "description": "Open Source Vulnerabilities, keyless. One vulnerability by id, with the version ranges it affects and the version that fixes each."
+ },
+ "servers": [
+  {
+   "url": "https://api.osv.dev"
+  }
+ ],
+ "paths": {
+  "/v1/vulns/{id}": {
+   "get": {
+    "operationId": "vulnerability",
+    "summary": "One vulnerability",
+    "description": "`{id, summary, aliases, severity, affected: [{package: {name: 'g:a', ecosystem: 'Maven'}, ranges: [{events: [{introduced}, {fixed}]}]}]}` \u2014 one introduced/fixed pair per maintenance line.",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "GHSA-\u2026 or CVE-\u2026 id."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

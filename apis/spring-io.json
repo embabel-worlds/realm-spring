@@ -1,0 +1,75 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "api.spring.io",
+  "version": "1",
+  "description": "Spring's own project metadata, keyless (HAL JSON). Generations are the support lines: when each release line's open-source and commercial support ends. Releases are the versions the Spring website currently lists, not the full history."
+ },
+ "servers": [
+  {
+   "url": "https://api.spring.io"
+  }
+ ],
+ "paths": {
+  "/projects/{project}/generations": {
+   "get": {
+    "operationId": "projectGenerations",
+    "summary": "A Spring project's release lines and their support end dates",
+    "description": "`_embedded.generations[]`: `{name: '3.5.x', initialReleaseDate, ossSupportEndDate, commercialSupportEndDate, support}`. `project` is the site's slug: spring-boot, spring-framework, spring-security, spring-data, spring-cloud, spring-batch, spring-integration, spring-kafka, spring-amqp, spring-session, spring-authorization-server, spring-ai, spring-graphql, spring-modulith, spring-shell, spring-vault, spring-ws, spring-hateoas, spring-restdocs.",
+    "parameters": [
+     {
+      "name": "project",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Project slug, e.g. spring-boot."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/projects/{project}/releases": {
+   "get": {
+    "operationId": "projectReleases",
+    "summary": "The versions a Spring project's site currently lists",
+    "description": "`_embedded.releases[]`: `{version, status: GENERAL_AVAILABILITY|PRERELEASE|SNAPSHOT, current, referenceDocUrl, apiDocUrl}` \u2014 the handful of versions on the project page, `current` marking the one it recommends.",
+    "parameters": [
+     {
+      "name": "project",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Project slug, e.g. spring-boot."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

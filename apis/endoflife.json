@@ -1,0 +1,45 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "endoflife.date",
+  "version": "1",
+  "description": "Community-maintained release and support dates, keyless. For Spring Boot each cycle names the Java versions it supports."
+ },
+ "servers": [
+  {
+   "url": "https://endoflife.date"
+  }
+ ],
+ "paths": {
+  "/api/{product}.json": {
+   "get": {
+    "operationId": "productCycles",
+    "summary": "A product's release cycles",
+    "description": "An array of `{cycle, releaseDate, eol, extendedSupport, latest, latestReleaseDate, lts, supportedJavaVersions}`. Products: spring-boot, spring-framework, java (as `oracle-jdk`, `eclipse-temurin`), hibernate-orm, apache-tomcat.",
+    "parameters": [
+     {
+      "name": "product",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      },
+      "description": "Product slug, e.g. spring-boot."
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "JSON",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "object"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

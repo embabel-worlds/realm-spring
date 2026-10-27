@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spring Stack Report</title>
+<meta name="description" content="Point it at a Spring project — a GitHub repository or a folder of yours — and see what it runs on, what blocks the next upgrade, what is vulnerable and what is misconfigured, every finding linked to its line and kept in a debt inbox you work through.">
+<link rel="stylesheet" href="/api/v1/apps-runtime/v1/theme.css">
+<script src="/api/v1/apps-runtime/v1/embabel.js"></script>
+<script src="/api/v1/apps-runtime/gateway.js"></script>
+<script type="application/embabel-app+json">
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+</script>
+<style>
+  :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
+        --green:#6db33f;--green2:#8fd15a;--red:#ef5b5b;--orange:#f0883e;--amber:#e3b341;--blue:#58a6ff;--violet:#a78bfa;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding-bottom:48px}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--green),#3d7a1f);display:grid;place-items:center;font-weight:800;color:#0b0d10}
+  h1{font-size:20px;margin:0;font-weight:700} .sub{color:var(--dim);font-size:13px}
+  .search{display:flex;gap:8px;margin:18px 0 8px;flex-wrap:wrap}
+  .search input{flex:1;min-width:280px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 14px;font-size:14px}
+  .search input:focus{outline:none;border-color:var(--green)}
+  button{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--dim)} button.primary{background:var(--green);color:#0b0d10;border-color:var(--green);font-weight:700}
+  button.primary:hover{background:var(--green2)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px} .chips button{font-size:12px;padding:5px 10px;border-radius:999px;color:var(--dim)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+  .stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:10px 0 16px}
+  .stat .k{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em} .stat .v{font-size:19px;font-weight:700;margin-top:2px}
+  .stat .n{color:var(--dim);font-size:12px}
+  .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700}
+  .p-supported{background:#1f3a14;color:var(--green2)} .p-commercial-only{background:#3a2a10;color:var(--amber)}
+  .p-unsupported{background:#3a1515;color:var(--red)} .p-upcoming,.p-unknown{background:#1b2533;color:var(--blue)}
+  .progress{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px} .step{font-size:12px;color:var(--dim);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 10px}
+  .step.done{color:var(--green2);border-color:#2b4a1c} .step.fail{color:var(--red);border-color:#4a1f1f} .step.run{color:var(--amber)}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin:6px 0 14px;flex-wrap:wrap}
+  .tabs button{border:none;background:none;border-bottom:2px solid transparent;border-radius:0;color:var(--dim);padding:9px 12px;font-weight:600}
+  .tabs button.on{color:var(--text);border-bottom-color:var(--green)} .tabs .count{color:var(--dim);font-weight:400;margin-left:4px}
+  .summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .sev{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:7px 12px;font-size:13px}
+  .dot{width:9px;height:9px;border-radius:50%} .s-critical{background:var(--red)} .s-high{background:var(--orange)} .s-medium{background:var(--amber)} .s-low{background:var(--blue)} .s-info{background:var(--dim)}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px} .filters button{font-size:12px;padding:4px 10px;border-radius:999px}
+  .filters button.on{border-color:var(--green);color:var(--green2)}
+  .item{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--dim);border-radius:10px;padding:12px 14px;margin-bottom:8px}
+  .item.critical{border-left-color:var(--red)} .item.high{border-left-color:var(--orange)} .item.medium{border-left-color:var(--amber)} .item.low{border-left-color:var(--blue)}
+  .item .t{font-weight:650} .item .d{color:var(--dim);margin-top:3px} .item .fix{margin-top:6px;color:var(--green2)} .item .fix::before{content:'Fix  ';color:var(--dim);font-weight:600}
+  .item .meta{display:flex;gap:12px;align-items:center;margin-top:8px;flex-wrap:wrap;font-size:12px;color:var(--dim)}
+  .item .actions{margin-left:auto;display:flex;gap:6px} .item .actions button{font-size:11.5px;padding:4px 9px}
+  .tag{font-size:11px;color:var(--dim);border:1px solid var(--border);border-radius:6px;padding:1px 6px}
+  table{width:100%;border-collapse:collapse;font-size:13px} th{text-align:left;color:var(--dim);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--border)}
+  td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+  .empty,.note{color:var(--dim);padding:18px;text-align:center} .note.warn{color:var(--amber);text-align:left;padding:10px 0}
+  textarea{width:100%;min-height:140px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:10px;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+  select{background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:7px 10px}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  details summary{cursor:pointer;color:var(--dim);margin:12px 0 8px}
+  #how-it-works{display:none;margin-top:26px} #how-it-works:target{display:block} #how-it-works pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--dim)} #how-it-works p{color:var(--dim)} #how-it-works summary{color:var(--text);margin:6px 0}
+  footer{color:var(--dim);font-size:12px;margin-top:28px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">S</div>
+    <div><h1>Spring Stack Report</h1>
+      <div class="sub">What your Spring app runs on, what blocks the next upgrade, what is vulnerable — every finding linked to its line.</div></div>
+  </header>
+
+  <form class="search" id="form">
+    <input id="project" placeholder="https://github.com/owner/repo  ·  …@tag or @branch  ·  or a folder in your workspace" autocomplete="off" spellcheck="false">
+    <button class="primary" type="submit">Analyze</button>
+  </form>
+  <div class="chips" id="chips"></div>
+
+  <div id="report" hidden>
+    <div class="progress" id="progress"></div>
+    <div class="card"><div class="stack" id="stack"></div><div id="recommend" class="sub"></div></div>
+    <div class="tabs" id="tabs"></div>
+    <section id="panel"></section>
+  </div>
+
+<section id="how-it-works">
+  <h2>How it works</h2>
+  <h3>The data, and how fresh it is</h3>
+  <p>Nothing about your project is stored. Each time you analyze it, the appliance reads it where it lives: a GitHub repository at the commit
+  its branch or tag points to now (cloned once, then kept by commit — a commit never changes), or a folder of yours, read afresh every time.
+  Its Java source and its application settings are parsed in place; its Maven build is resolved by Maven's own resolver, every module against
+  the others, against Maven Central. Support dates come from spring.io and endoflife.date (cached a day); advisories from deps.dev and the
+  fixed versions from OSV (cached a day, a week for a published version). Which properties Spring Boot binds, deprecates and removed comes from
+  the configuration metadata inside Spring Boot's own jars, for the version you run and the version you upgrade to. Your decisions in the debt
+  inbox are the one thing kept, as SpringTriage entries in your world.</p>
+  <h3>Every view, with the Cypher that runs</h3>
+  <details><summary><b>StackCard</b> — What a Spring project runs on: its Spring Boot and Spring Framework versions, the Boot line and when that line&#x27;s open-source and commercial support end, the Java versions the line supports, its latest patch, and the newest Spring Boot line. The first call for a Spring project.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(d:ProjectDependency)
+WHERE (d.groupId = &#x27;org.springframework.boot&#x27; AND d.artifactId = &#x27;spring-boot&#x27;)
+   OR (d.groupId = &#x27;org.springframework&#x27; AND d.artifactId = &#x27;spring-core&#x27;)
+WITH collect(DISTINCT CASE WHEN d.artifactId = &#x27;spring-boot&#x27; THEN d.version END) AS boots,
+     collect(DISTINCT CASE WHEN d.artifactId = &#x27;spring-core&#x27; THEN d.version END) AS cores
+WITH [v IN boots WHERE v IS NOT NULL][0] AS bootVersion, [v IN cores WHERE v IS NOT NULL][0] AS frameworkVersion
+WITH bootVersion, frameworkVersion, split(bootVersion, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(bootVersion, &#x27;.&#x27;)[1] AS line
+MATCH (sp:SpringProduct {slug: &#x27;spring-boot&#x27;})-[:HAS_GENERATION]-&gt;(g:SpringGeneration)
+WITH bootVersion, frameworkVersion, line, sp, collect(g) AS gens, toString(date()) AS today
+MATCH (sp)-[:HAS_CYCLE]-&gt;(c:SupportCycle)
+WITH bootVersion, frameworkVersion, line, gens, today, collect(c) AS cycles
+WITH bootVersion, frameworkVersion, line, today,
+     [x IN gens WHERE x.name = line + &#x27;.x&#x27;][0] AS mine,
+     [x IN cycles WHERE x.cycle = line][0] AS myCycle,
+     reduce(n = null, x IN gens | CASE WHEN x.initialReleaseDate &lt;= today
+            AND (n IS NULL OR x.initialReleaseDate &gt; n.initialReleaseDate) THEN x ELSE n END) AS newest
+RETURN bootVersion, frameworkVersion, line + &#x27;.x&#x27; AS bootLine,
+       mine.ossSupportEndDate AS ossSupportEnds, mine.commercialSupportEndDate AS commercialSupportEnds,
+       CASE WHEN mine IS NULL THEN &#x27;unknown&#x27;
+            WHEN mine.ossSupportEndDate &gt;= today THEN &#x27;supported&#x27;
+            WHEN mine.commercialSupportEndDate &gt;= today THEN &#x27;commercial-only&#x27;
+            ELSE &#x27;unsupported&#x27; END AS support,
+       myCycle.supportedJavaVersions AS javaVersions, myCycle.latest AS latestPatch,
+       newest.name AS newestLine, newest.ossSupportEndDate AS newestSupportEnds</pre></details>
+  <details><summary><b>BootLines</b> — Every Spring Boot line: when its open-source and commercial support end, the Java versions it supports, and its latest patch — what to upgrade to, and what that asks of your Java.</summary><pre class="mono">MATCH (sp:SpringProduct {slug: &#x27;spring-boot&#x27;})-[:HAS_GENERATION]-&gt;(g:SpringGeneration)
+WITH sp, g, toString(date()) AS today
+OPTIONAL MATCH (sp)-[:HAS_CYCLE]-&gt;(c:SupportCycle)
+WHERE c.cycle + &#x27;.x&#x27; = g.name
+RETURN g.name AS line, g.initialReleaseDate AS released, g.ossSupportEndDate AS ossSupportEnds,
+       g.commercialSupportEndDate AS commercialSupportEnds, c.latest AS latestPatch, c.supportedJavaVersions AS javaVersions,
+       CASE WHEN g.initialReleaseDate &gt; today THEN &#x27;upcoming&#x27;
+            WHEN g.ossSupportEndDate &gt;= today THEN &#x27;supported&#x27;
+            WHEN g.commercialSupportEndDate &gt;= today THEN &#x27;commercial-only&#x27;
+            ELSE &#x27;unsupported&#x27; END AS support
+ORDER BY released DESC LIMIT 40</pre></details>
+  <details><summary><b>ModernizationFindings</b> — Code Spring has moved past, with what to write instead: javax packages Jakarta EE renamed, WebSecurityConfigurerAdapter, field injection, @MockBean and @SpyBean, JUnit 4, the old @ConstructorBinding, RestTemplate, and auto-configuration registered in spring.factories. Each links to its line.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport)
+WHERE i.name STARTS WITH &#x27;javax.persistence&#x27; OR i.name STARTS WITH &#x27;javax.servlet&#x27;
+   OR i.name STARTS WITH &#x27;javax.validation&#x27; OR i.name STARTS WITH &#x27;javax.annotation.PostConstruct&#x27;
+   OR i.name STARTS WITH &#x27;javax.annotation.PreDestroy&#x27; OR i.name STARTS WITH &#x27;javax.transaction&#x27;
+   OR i.name STARTS WITH &#x27;javax.inject&#x27; OR i.name STARTS WITH &#x27;javax.ws.rs&#x27; OR i.name STARTS WITH &#x27;javax.mail&#x27;
+   OR i.name STARTS WITH &#x27;javax.jms&#x27; OR i.name STARTS WITH &#x27;javax.websocket&#x27;
+RETURN &#x27;jakarta:&#x27; + i.path + &#x27;:&#x27; + toString(i.line) AS id, &#x27;high&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
+       &#x27;javax → jakarta: &#x27; + i.name AS title,
+       &#x27;Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*. This import does not compile there.&#x27; AS detail,
+       &#x27;import &#x27; + replace(i.name, &#x27;javax.&#x27;, &#x27;jakarta.&#x27;) + &#x27; (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta)&#x27; AS fix,
+       i.path AS file, i.line AS line, i.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaProjectType)
+WHERE ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27; OR s ENDS WITH &#x27;WebMvcConfigurerAdapter&#x27;)
+RETURN &#x27;adapter:&#x27; + t.name AS id, &#x27;high&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
+       t.simpleName + &#x27; extends &#x27; + [s IN t.extends WHERE s ENDS WITH &#x27;Adapter&#x27;][0] AS title,
+       CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27;)
+            THEN &#x27;WebSecurityConfigurerAdapter was removed in Spring Security 6 (Spring Boot 3).&#x27;
+            ELSE &#x27;WebMvcConfigurerAdapter was removed in Spring Framework 6.&#x27; END AS detail,
+       CASE WHEN ANY(s IN t.extends WHERE s ENDS WITH &#x27;WebSecurityConfigurerAdapter&#x27;)
+            THEN &#x27;Declare a @Bean SecurityFilterChain filterChain(HttpSecurity http) instead (OpenRewrite recipe org.openrewrite.java.spring.security5.WebSecurityConfigurerAdapter)&#x27;
+            ELSE &#x27;implement WebMvcConfigurer directly&#x27; END AS fix,
+       t.path AS file, t.line AS line, t.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {name: &#x27;Autowired&#x27;, targetKind: &#x27;field&#x27;})
+RETURN &#x27;field-injection:&#x27; + a.owner + &#x27;#&#x27; + a.targetName AS id, &#x27;medium&#x27; AS severity, &#x27;design&#x27; AS category,
+       &#x27;Field injection: &#x27; + a.owner + &#x27;.&#x27; + a.targetName AS title,
+       &#x27;An @Autowired field hides a dependency, cannot be final, and needs a container to test.&#x27; AS detail,
+       &#x27;Take it as a constructor parameter (a single constructor needs no @Autowired).&#x27; AS fix,
+       a.path AS file, a.line AS line, a.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
+WHERE a.name IN [&#x27;MockBean&#x27;, &#x27;SpyBean&#x27;]
+RETURN &#x27;mockbean:&#x27; + a.path + &#x27;:&#x27; + toString(a.line) AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
+       &#x27;@&#x27; + a.name + &#x27; on &#x27; + a.targetName AS title,
+       &#x27;@MockBean and @SpyBean were deprecated in Spring Boot 3.4 and removed in 4.0.&#x27; AS detail,
+       &#x27;Use @MockitoBean / @MockitoSpyBean (org.springframework.test.context.bean.override.mockito).&#x27; AS fix,
+       a.path AS file, a.line AS line, a.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport)
+WHERE i.name IN [&#x27;org.junit.Test&#x27;, &#x27;org.junit.runner.RunWith&#x27;, &#x27;org.junit.Before&#x27;, &#x27;org.junit.After&#x27;, &#x27;org.junit.Assert&#x27;]
+RETURN &#x27;junit4:&#x27; + i.path + &#x27;:&#x27; + toString(i.line) AS id, &#x27;medium&#x27; AS severity, &#x27;testing&#x27; AS category,
+       &#x27;JUnit 4: &#x27; + i.name AS title,
+       &#x27;Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Boot 3 no longer manages.&#x27; AS detail,
+       &#x27;Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration)&#x27; AS fix,
+       i.path AS file, i.line AS line, i.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport {name: &#x27;org.springframework.boot.context.properties.ConstructorBinding&#x27;})
+RETURN &#x27;constructor-binding:&#x27; + i.path AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
+       &#x27;Old @ConstructorBinding in &#x27; + i.path AS title,
+       &#x27;Spring Boot 3 moved it to org.springframework.boot.context.properties.bind.ConstructorBinding and no longer needs it on a class with one constructor.&#x27; AS detail,
+       &#x27;Remove it from the class; keep it, from the new package, only to pick one of several constructors.&#x27; AS fix,
+       i.path AS file, i.line AS line, i.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport {name: &#x27;org.springframework.web.client.RestTemplate&#x27;})
+RETURN &#x27;resttemplate:&#x27; + i.path AS id, &#x27;info&#x27; AS severity, &#x27;modernize&#x27; AS category,
+       &#x27;RestTemplate in &#x27; + i.path AS title,
+       &#x27;RestTemplate is in maintenance; Spring Framework 6.1 added RestClient, the same synchronous model with a fluent API.&#x27; AS detail,
+       &#x27;Build a RestClient (RestClient.create() or RestClient.Builder) for new code.&#x27; AS fix,
+       i.path AS file, i.line AS line, i.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile {fileName: &#x27;spring.factories&#x27;})
+WHERE f.path CONTAINS &#x27;src/main/resources/META-INF/&#x27;
+RETURN &#x27;spring-factories:&#x27; + f.path AS id, &#x27;medium&#x27; AS severity, &#x27;upgrade-blocker&#x27; AS category,
+       &#x27;META-INF/spring.factories in &#x27; + coalesce(nullif(f.module, &#x27;&#x27;), &#x27;the root module&#x27;) AS title,
+       &#x27;Spring Boot 3 no longer reads auto-configurations from spring.factories; any EnableAutoConfiguration entry in it is ignored.&#x27; AS detail,
+       &#x27;Move each auto-configuration to META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports and annotate it @AutoConfiguration.&#x27; AS fix,
+       f.path AS file, 1 AS line, f.link AS link</pre></details>
+  <details><summary><b>ConfigurationProblems</b> — Settings in the project&#x27;s application*.yml / .properties that the Spring Boot it runs does not bind (a typo, or a property from another version), and settings it has deprecated — checked against what the project&#x27;s own Spring Boot jars document. Keys under the project&#x27;s own @ConfigurationProperties prefixes, or read by @Value, are the project&#x27;s and are not flagged. Downloads the project&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
+WHERE j.groupId = &#x27;org.springframework.boot&#x27; AND j.jarPath IS NOT NULL
+MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
+WITH p, collect(bp) AS props
+WITH p, props, [x IN props | x.name] AS known,
+     [x IN props WHERE x.type STARTS WITH &#x27;java.util.Map&#x27; OR x.type STARTS WITH &#x27;java.util.List&#x27; | x.name] AS open
+OPTIONAL MATCH (p)-[:HAS_ANNOTATION]-&gt;(cp:JavaProjectAnnotation)
+WHERE cp.name = &#x27;ConfigurationProperties&#x27; OR cp.name = &#x27;Value&#x27;
+WITH p, props, known, open,
+     collect(DISTINCT CASE WHEN cp.name = &#x27;ConfigurationProperties&#x27;
+               THEN coalesce([x IN cp.attributes WHERE x STARTS WITH &#x27;prefix=&#x27; | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
+     collect(DISTINCT CASE WHEN cp.name = &#x27;Value&#x27; THEN split(split(split(cp.value, &#x27;${&#x27;)[1], &#x27;}&#x27;)[0], &#x27;:&#x27;)[0] END) AS valueKeys
+MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND (s.fileName STARTS WITH &#x27;application&#x27; OR s.fileName STARTS WITH &#x27;bootstrap&#x27;)
+  AND NOT s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
+WITH s, props, known, open, [x IN ownPrefixes WHERE x IS NOT NULL] AS ownPrefixes, [x IN valueKeys WHERE x IS NOT NULL] AS valueKeys,
+     split(s.name, &#x27;[&#x27;)[0] AS base
+WITH s, base, ownPrefixes, valueKeys, known, open, [x IN props WHERE x.name = base][0] AS match
+WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + &#x27;.&#x27; OR base = x)
+  AND NOT ANY(x IN valueKeys WHERE base = x)
+  AND NOT ANY(x IN open WHERE base STARTS WITH x + &#x27;.&#x27;)
+  AND (match IS NULL OR match.deprecated)
+RETURN &#x27;config:&#x27; + s.path + &#x27;:&#x27; + toString(s.line) + &#x27;:&#x27; + s.name AS id,
+       CASE WHEN match IS NULL THEN &#x27;medium&#x27; WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
+       &#x27;configuration&#x27; AS category,
+       CASE WHEN match IS NULL THEN &#x27;Spring Boot binds no property &#x27; + s.name
+            WHEN match.deprecationLevel = &#x27;error&#x27; THEN s.name + &#x27; no longer binds&#x27;
+            ELSE s.name + &#x27; is deprecated&#x27; END AS title,
+       CASE WHEN match IS NULL THEN &#x27;Nothing in the Spring Boot jars this project resolves documents it, and no @ConfigurationProperties or @Value of the project reads it: a typo, or a property from another Spring Boot version, does nothing.&#x27;
+            WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;Spring Boot removed it&#x27; + coalesce(&#x27; in &#x27; + match.deprecatedSince, &#x27;&#x27;) + &#x27;: the setting is silently ignored.&#x27; + coalesce(&#x27; &#x27; + match.deprecationReason, &#x27;&#x27;)
+            ELSE coalesce(match.deprecationReason, &#x27;Deprecated&#x27;) + coalesce(&#x27; (since &#x27; + match.deprecatedSince + &#x27;)&#x27;, &#x27;&#x27;) + &#x27;; it still binds, for now.&#x27; END AS detail,
+       CASE WHEN match IS NULL THEN &#x27;Check the spelling against the Spring Boot reference, or remove it.&#x27;
+            WHEN match.replacement IS NOT NULL THEN &#x27;Use &#x27; + match.replacement + &#x27; instead.&#x27;
+            ELSE &#x27;Remove it.&#x27; END AS fix,
+       s.path AS file, s.line AS line, s.link AS link
+LIMIT 500</pre></details>
+  <details><summary><b>UpgradeConfiguration</b> — Settings in the project that the target Spring Boot version removed or renamed, each with the property to use there — read from the target release&#x27;s own jars, which document every property they dropped with its replacement. `target` is a Spring Boot version, e.g. 3.5.16 or 4.1.2. Downloads the target&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (bom:BootBom {coordinates: &#x27;org.springframework.boot:spring-boot-dependencies:&#x27; + $target})-[:PINS]-&gt;(v:BootManagedVersion)
+WHERE v.groupId = &#x27;org.springframework.boot&#x27; AND v.artifactId STARTS WITH &#x27;spring-boot&#x27;
+  AND NOT v.artifactId CONTAINS &#x27;starter&#x27; AND NOT v.artifactId CONTAINS &#x27;test&#x27; AND NOT v.artifactId ENDS WITH &#x27;-docs&#x27;
+MATCH (v)-[:IS]-&gt;(b:BootJar)-[:DOCUMENTS]-&gt;(bp:BootProperty)
+WHERE bp.deprecated
+WITH collect(bp) AS dropped
+MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND (s.fileName STARTS WITH &#x27;application&#x27; OR s.fileName STARTS WITH &#x27;bootstrap&#x27;)
+WITH s, [x IN dropped WHERE x.name = split(s.name, &#x27;[&#x27;)[0]][0] AS match
+WHERE match IS NOT NULL
+RETURN &#x27;upgrade-config:&#x27; + $target + &#x27;:&#x27; + s.path + &#x27;:&#x27; + toString(s.line) + &#x27;:&#x27; + s.name AS id,
+       CASE WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
+       &#x27;upgrade-blocker&#x27; AS category,
+       CASE WHEN match.deprecationLevel = &#x27;error&#x27; THEN s.name + &#x27; is gone in Spring Boot &#x27; + $target
+            ELSE s.name + &#x27; is deprecated in Spring Boot &#x27; + $target END AS title,
+       coalesce(match.deprecationReason + &#x27;. &#x27;, &#x27;&#x27;) + CASE WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;It no longer binds there: the setting is silently ignored.&#x27; ELSE &#x27;It still binds, for now.&#x27; END AS detail,
+       CASE WHEN match.replacement IS NOT NULL THEN &#x27;Rename it to &#x27; + match.replacement + &#x27;.&#x27; ELSE &#x27;Remove it.&#x27; END AS fix,
+       s.path AS file, s.line AS line, s.link AS link
+LIMIT 500</pre></details>
+  <details><summary><b>Vulnerabilities</b> — Security advisories affecting the exact versions the project resolves, worst first: the dependency, the advisory and its CVE ids, its CVSS score, and the fixed version on your own line (same major.minor) when there is one — else the nearest fix above it.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(d:ProjectDependency)
+WHERE d.depth &gt; 0
+WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + &#x27;:&#x27; + d.artifactId AS artifact, head(collect(d)) AS d
+MATCH (d)-[:HAS_ADVISORY]-&gt;(a:DependencyAdvisory)-[:DESCRIBED_BY]-&gt;(x:AdvisoryDetail)
+OPTIONAL MATCH (a)-[:FIXED_IN]-&gt;(f:AdvisoryFix)
+WITH coordinates, version, artifact, a, x, collect(f.fixed) AS fixes,
+     split(version, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(version, &#x27;.&#x27;)[1] AS line
+WITH coordinates, version, artifact, a, x, fixes, line,
+     [v IN fixes WHERE split(v, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(v, &#x27;.&#x27;)[1] = line][0] AS onLine
+RETURN &#x27;cve:&#x27; + coordinates + &#x27;:&#x27; + a.advisoryId AS id,
+       CASE WHEN x.cvss3Score &gt;= 9 THEN &#x27;critical&#x27; WHEN x.cvss3Score &gt;= 7 THEN &#x27;high&#x27; WHEN x.cvss3Score &gt;= 4 THEN &#x27;medium&#x27; ELSE &#x27;low&#x27; END AS severity,
+       &#x27;vulnerability&#x27; AS category,
+       artifact + &#x27; &#x27; + version + &#x27;: &#x27; + x.title AS title,
+       a.advisoryId + coalesce(&#x27; / &#x27; + [y IN x.aliases WHERE y STARTS WITH &#x27;CVE-&#x27;][0], &#x27;&#x27;) + &#x27;, CVSS &#x27; + toString(x.cvss3Score) AS detail,
+       CASE WHEN onLine IS NOT NULL THEN &#x27;Upgrade to &#x27; + onLine + &#x27; (same line).&#x27;
+            WHEN size(fixes) &gt; 0 THEN &#x27;Fixed in &#x27; + reduce(s = &#x27;&#x27;, v IN fixes | s + CASE WHEN s = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + v) + &#x27; — no fix on your &#x27; + line + &#x27; line.&#x27;
+            ELSE &#x27;No fixed version is published yet.&#x27; END AS fix,
+       coordinates AS file, 0 AS line, x.url AS link, x.cvss3Score AS cvss
+ORDER BY cvss DESC LIMIT 500</pre></details>
+  <details><summary><b>VersionOverrides</b> — Where the project&#x27;s build pins a different version than the Spring Boot it runs would — a `&lt;jackson-bom.version&gt;` property, a hand-written version on a managed dependency — so a patch Spring Boot ships for it never arrives. Compared against the Spring Boot release&#x27;s own BOM.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]-&gt;(boot:ProjectDependency)
+WHERE boot.groupId = &#x27;org.springframework.boot&#x27; AND boot.artifactId = &#x27;spring-boot&#x27;
+WITH p, head(collect(boot.version)) AS bootVersion
+MATCH (bom:BootBom {coordinates: &#x27;org.springframework.boot:spring-boot-dependencies:&#x27; + bootVersion})-[:PINS]-&gt;(v:BootManagedVersion)
+WITH p, bootVersion, collect(v) AS pins
+MATCH (p)-[:MANAGES]-&gt;(m:ProjectManagedVersion)
+WITH bootVersion, m, [x IN pins WHERE x.groupId = m.groupId AND x.artifactId = m.artifactId][0] AS pin
+WHERE pin IS NOT NULL AND pin.version &lt;&gt; m.version
+WITH bootVersion, m.version AS mine, pin.version AS boots, collect(DISTINCT m.groupId) AS groups, count(*) AS artifacts
+WITH bootVersion, mine, boots, groups, artifacts, reduce(m = head(groups), g IN groups | CASE WHEN g &lt; m THEN g ELSE m END) AS first
+RETURN &#x27;override:&#x27; + mine + &#x27;:&#x27; + boots + &#x27;:&#x27; + first AS id, &#x27;medium&#x27; AS severity, &#x27;dependencies&#x27; AS category,
+       first + CASE WHEN size(groups) &gt; 1 THEN &#x27; and &#x27; + toString(size(groups) - 1) + &#x27; related group(s)&#x27; ELSE &#x27;&#x27; END
+         + &#x27; pinned to &#x27; + mine + &#x27; (Spring Boot &#x27; + bootVersion + &#x27; manages &#x27; + boots + &#x27;)&#x27; AS title,
+       &#x27;Overrides &#x27; + toString(artifacts) + &#x27; managed artifact(s) in &#x27; + reduce(s = &#x27;&#x27;, g IN groups[0..5] | s + CASE WHEN s = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + g)
+         + &#x27;. Patches Spring Boot ships for them do not reach this build.&#x27; AS detail,
+       &#x27;Remove the version override and take &#x27; + boots + &#x27; from Spring Boot, unless you pinned it on purpose (then note why).&#x27; AS fix,
+       &#x27;pom.xml&#x27; AS file, 0 AS line, null AS link</pre></details>
+  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares: classes annotated @Component, @Service, @Repository, @Controller, @RestController or @Configuration, and @Bean methods — each with the profiles and conditions it is declared under, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
+WHERE a.name IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
+WITH p, a
+OPTIONAL MATCH (p)-[:HAS_ANNOTATION]-&gt;(o:JavaProjectAnnotation)
+WHERE (o.targetId = a.targetId OR (a.targetKind = &#x27;method&#x27; AND o.targetKind = &#x27;type&#x27; AND o.targetName = a.owner))
+  AND (o.name = &#x27;Profile&#x27; OR o.name STARTS WITH &#x27;Conditional&#x27;)
+WITH a, collect(DISTINCT CASE WHEN o.name = &#x27;Profile&#x27; THEN o.value END) AS profiles,
+     collect(DISTINCT CASE WHEN o.name STARTS WITH &#x27;Conditional&#x27; THEN o.text END) AS conditions
+RETURN CASE WHEN a.name = &#x27;Bean&#x27; THEN a.owner + &#x27;#&#x27; + a.targetName ELSE a.targetName END AS bean,
+       CASE WHEN a.name = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; ELSE &#x27;@&#x27; + a.name END AS declaredBy,
+       [x IN profiles WHERE x IS NOT NULL] AS profiles, [x IN conditions WHERE x IS NOT NULL] AS conditions,
+       a.module AS module, a.path AS file, a.line AS line, a.link AS link
+ORDER BY declaredBy, bean LIMIT 2000</pre></details>
+  <details><summary><b>Profiles</b> — Every Spring profile the project uses and where: @Profile on classes and @Bean methods, application-&lt;profile&gt; files, and YAML documents activated on a profile.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {name: &#x27;Profile&#x27;})
+UNWIND a.values AS profile
+RETURN profile, &#x27;code&#x27; AS where, coalesce(a.owner + &#x27;#&#x27; + a.targetName, a.targetName) AS what, a.path AS file, a.line AS line, a.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.fileName STARTS WITH &#x27;application-&#x27; AND f.extension IN [&#x27;yml&#x27;, &#x27;yaml&#x27;, &#x27;properties&#x27;]
+RETURN split(split(f.fileName, &#x27;application-&#x27;)[1], &#x27;.&#x27;)[0] AS profile, &#x27;file&#x27; AS where, f.fileName AS what, f.path AS file, 1 AS line, f.link AS link
+UNION
+MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
+RETURN s.value AS profile, &#x27;document&#x27; AS where, s.fileName + &#x27; document &#x27; + toString(s.document) AS what, s.path AS file, s.line AS line, s.link AS link</pre></details>
+  <details><summary><b>Triage</b> — What has been decided about this project&#x27;s findings: done, snoozed or won&#x27;t fix, with notes.</summary><pre class="mono">MATCH (t:SpringTriage {project: $project})
+RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
+LIMIT 2000</pre></details>
+  <details><summary><b>WhyNotApplied</b> — Why each auto-configuration or @Bean method did NOT apply in a running app, in Spring&#x27;s own words — &quot;why isn&#x27;t my bean created&quot;. Takes /actuator/conditions.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:EVALUATED]-&gt;(c:RuntimeCondition {configurationMatched: false, outcome: &#x27;notMatched&#x27;})
+RETURN c.configuration AS configuration, c.beanMethod AS beanMethod, c.condition AS condition, c.message AS why
+ORDER BY configuration LIMIT 2000</pre></details>
+  <details><summary><b>RuntimeBeans</b> — The beans a running app actually created — name, the class behind any proxy, scope, where it was defined and what it depends on. Takes /actuator/beans.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:HAS_BEAN]-&gt;(b:RuntimeBean)
+RETURN b.name AS bean, b.targetType AS type, b.scope AS scope, b.resource AS definedIn, b.dependencies AS dependsOn
+ORDER BY type LIMIT 5000</pre></details>
+  <details><summary><b>EffectiveSettings</b> — For each property in a running app, which property source&#x27;s value won and where it came from (file and line, environment variable, system property). Takes /actuator/env.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:HAS_SETTING]-&gt;(s:RuntimeSetting {effective: true})
+RETURN s.name AS property, s.value AS value, s.source AS source, s.origin AS origin, s.masked AS masked
+ORDER BY property LIMIT 5000</pre></details>
+  <details><summary><b>ShippedVulnerabilities</b> — Advisories against what a running app actually shipped, from its SBOM. Takes /actuator/sbom/application.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:SHIPS]-&gt;(c:RuntimeComponent)-[:HAS_ADVISORY]-&gt;(a:DependencyAdvisory)-[:DESCRIBED_BY]-&gt;(x:AdvisoryDetail)
+RETURN c.coordinates AS component, a.advisoryId AS advisory, [y IN x.aliases WHERE y STARTS WITH &#x27;CVE-&#x27;][0] AS cve,
+       x.cvss3Score AS cvss, x.title AS title, x.url AS link
+ORDER BY cvss DESC LIMIT 1000</pre></details>
+  <h3>What an empty panel means</h3>
+  <p>An empty finding list means the rule ran and found nothing — but only over what could be read. A project with no root pom.xml (a Gradle
+  build) has no build to resolve, so the Spring Boot version, dependencies, configuration checks and upgrade path stay empty; its code findings
+  still appear. A module whose POM is missing, a file that does not parse, or a source that could not be reached comes back as a warning from the
+  view, never as silence. Kotlin source is not read yet. "No fixed version is published yet" means OSV lists none, not that there is no risk.</p>
+  <h3>What the appliance did that a conventional stack could not</h3>
+  <p>Every panel is a query over one graph that spans your code, your build and the outside world at once: a dependency Maven resolved for your
+  project joins straight to the advisories that name its exact version, a setting in your YAML joins to the property Spring Boot's own jar
+  documents, and a Spring Boot release's BOM joins to the jars that say what that release removed — each read live when the query reaches it,
+  with no ingestion pipeline, no database of your code, and no API glue written for this page. The same views answer your coding agent over MCP
+  and your questions in chat.</p>
+  <p><a href="#">Back to the report</a></p>
+</section>
+
+  <footer>
+    Reads your project where it lives: its code and settings parsed in place, its Maven build resolved as Maven does. Support dates from
+    <a href="https://spring.io/projects/spring-boot#support" target="_blank" rel="noopener">spring.io</a> and
+    <a href="https://endoflife.date/spring-boot" target="_blank" rel="noopener">endoflife.date</a>; advisories from
+    <a href="https://deps.dev" target="_blank" rel="noopener">deps.dev</a> and <a href="https://osv.dev" target="_blank" rel="noopener">OSV</a>;
+    property renames from Spring Boot's own configuration metadata. Free. Not affiliated with or endorsed by the Spring team or Broadcom. · <a href="#how-it-works">How it works</a>
+  </footer>
+</div>
+
+<div id="embabel-badge" style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:rgba(11,13,16,.92);border-top:1px solid #232a33;font-size:.75rem;color:#8b95a3;z-index:9999;pointer-events:none;">
+  Created with <a href="https://embabel.com" target="_blank" rel="noopener noreferrer" style="color:#6db33f;pointer-events:auto;">Embabel</a>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var SAMPLES = [
+    { key: 'https://github.com/spring-projects/spring-petclinic', name: 'Spring PetClinic' },
+    { key: 'https://github.com/spring-petclinic/spring-petclinic-rest', name: 'PetClinic REST' },
+    { key: 'https://github.com/sqshq/piggymetrics', name: 'PiggyMetrics (Boot 2, Spring Cloud)' },
+    { key: 'https://github.com/macrozheng/mall', name: 'mall (Boot 3.5, e-commerce)' }
+  ];
+  var SEV = ['critical', 'high', 'medium', 'low', 'info'];
+  var CATEGORY = { 'upgrade-blocker': 'Upgrade blockers', 'vulnerability': 'Vulnerabilities', 'configuration': 'Configuration',
+                   'dependencies': 'Dependencies', 'design': 'Design', 'testing': 'Testing', 'modernize': 'Modernize', 'support': 'Support' };
+  var state = { project: null, stack: null, lines: [], findings: [], triage: {}, beans: null, profiles: null, target: null,
+                upgrade: null, tab: 'inbox', filter: null, showDecided: false };
+
+  function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function rowsOf(r) {
+    if (!r) return [];
+    if (Array.isArray(r)) return r;
+    if (Array.isArray(r.data)) return r.data;
+    if (Array.isArray(r.rows)) return r.rows;
+    if (r.data && Array.isArray(r.data.rows)) return r.data.rows;
+    if (r.result && Array.isArray(r.result.rows)) return r.result.rows;
+    return [];
+  }
+  function view(name, params) { return embabel.views.invoke(name, params || {}).then(rowsOf); }
+  function $(id) { return document.getElementById(id); }
+
+  /* ── progress ── */
+  var STEPS = [['code', 'Reading code & build'], ['support', 'Support'], ['modern', 'Code'], ['config', 'Configuration'],
+               ['deps', 'Dependencies & CVEs'], ['upgrade', 'Upgrade path']];
+  function steps() { $('progress').innerHTML = STEPS.map(function (s) { return '<span class="step" id="st-' + s[0] + '">' + s[1] + '</span>'; }).join(''); }
+  function mark(id, cls, label) { var el = $('st-' + id); if (el) { el.className = 'step ' + cls; if (label) el.textContent = label; } }
+
+  /* ── the project ── */
+  function normalise(v) {
+    v = String(v || '').trim();
+    if (/^[\w.-]+\/[\w.-]+(@[\w./-]+)?$/.test(v) && v.indexOf('://') < 0 && !/^\./.test(v)) {
+      if (!/^(data|projects)\//.test(v) && v.split('/').length === 2) v = 'https://github.com/' + v;
+    }
+    return v.replace(/\/+$/, '').replace(/\.git(@|$)/, '$1');
+  }
+  function analyze(key) {
+    key = normalise(key);
+    if (!key) return;
+    $('project').value = key;
+    if (location.hash !== '#project=' + encodeURIComponent(key)) history.replaceState(null, '', '#project=' + encodeURIComponent(key));
+    state = Object.assign(state, { project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    $('report').hidden = false; steps(); renderStack(); render();
+    mark('code', 'run');
+    view('StackCard', { project: key }).then(function (rows) {
+      state.stack = rows[0] || null;
+      mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion ? 'Code & build read' : 'Not a Spring Boot build?');
+      renderStack();
+      supportFinding();
+      return Promise.all([loadLines(), loadTriage()]);
+    }).then(function () {
+      mark('support', 'done');
+      pickTarget();
+      run('modern', 'ModernizationFindings', { project: key });
+      run('config', 'ConfigurationProblems', { project: key });
+      run('deps', 'VulnerableDependencies', { project: key });
+      run(null, 'VersionOverrides', { project: key });
+      loadUpgrade();
+    }).catch(function (e) { mark('code', 'fail', 'Could not read the project'); $('panel').innerHTML = '<div class="note warn">' + esc(e && e.message || e) + '</div>'; });
+  }
+  function run(step, name, params) {
+    if (step) mark(step, 'run');
+    var key = state.project;
+    return view(name, params).then(function (rows) {
+      if (key !== state.project) return;
+      add(rows); if (step) mark(step, 'done'); render();
+    }).catch(function (e) { if (step) mark(step, 'fail'); console.warn(name, e); });
+  }
+  function add(rows) {
+    var seen = {}; state.findings.forEach(function (f) { seen[f.id] = true; });
+    rows.forEach(function (r) { if (r && r.id && !seen[r.id]) { seen[r.id] = true; state.findings.push(r); } });
+  }
+  function loadLines() { return view('BootLines').then(function (rows) { state.lines = rows; }); }
+  function loadTriage() {
+    return view('Triage', { project: state.project }).then(function (rows) {
+      state.triage = {}; rows.forEach(function (t) { state.triage[t.findingId] = t; });
+    }).catch(function () { state.triage = {}; });
+  }
+  function supportFinding() {
+    var s = state.stack; if (!s || !s.bootVersion) return;
+    if (s.support === 'supported') return;
+    add([{ id: 'support:' + s.bootLine, severity: s.support === 'unsupported' ? 'critical' : 'high', category: 'support',
+      title: 'Spring Boot ' + s.bootLine + ' is ' + (s.support === 'unsupported' ? 'out of all support' : 'out of open-source support'),
+      detail: 'Open-source support ended ' + (s.ossSupportEnds || '?') + (s.support === 'commercial-only' ? '; only paid commercial support continues, until ' + s.commercialSupportEnds : '') +
+              '. Free patches — security fixes included — no longer ship for this line.',
+      fix: 'Move to a supported line' + (s.newestLine ? ' (newest: ' + s.newestLine + ')' : '') + ' — see the Upgrade tab.', file: 'pom.xml', line: 0, link: null }]);
+  }
+
+  /* ── upgrade target ── */
+  function pickTarget() {
+    var supported = state.lines.filter(function (l) { return l.support === 'supported' && l.latestPatch; });
+    var s = state.stack;
+    var major = s && s.bootVersion ? Number(s.bootVersion.split('.')[0]) : null;
+    var sameMajor = supported.filter(function (l) { return Number(l.line.split('.')[0]) === major; });
+    var t = (sameMajor[0] || supported[supported.length - 1] || supported[0]);
+    if (major !== null && major < 3) {
+      var three = state.lines.filter(function (l) { return l.line.indexOf('3.') === 0 && l.latestPatch; })[0];
+      if (three) t = three;
+    }
+    state.target = t ? t.latestPatch : null;
+    renderStack();
+  }
+  function loadUpgrade() {
+    if (!state.target) { mark('upgrade', 'fail', 'No target'); return; }
+    mark('upgrade', 'run', 'Upgrade path → ' + state.target);
+    var key = state.project, target = state.target;
+    view('UpgradeConfiguration', { project: key, target: target }).then(function (rows) {
+      if (key !== state.project || target !== state.target) return;
+      state.upgrade = rows; add(rows); mark('upgrade', 'done', 'Upgrade path → ' + target); render();
+    }).catch(function (e) { mark('upgrade', 'fail'); console.warn(e); });
+  }
+
+  /* ── stack card ── */
+  function renderStack() {
+    var s = state.stack;
+    if (!s) { $('stack').innerHTML = '<div class="stat"><div class="k">Reading</div><div class="v">…</div><div class="n">' + esc(state.project) + '</div></div>'; $('recommend').textContent = ''; return; }
+    var java = state.lines.filter(function (l) { return l.latestPatch === state.target; })[0];
+    $('stack').innerHTML = [
+      stat('Spring Boot', s.bootVersion || '—', s.latestPatch && s.latestPatch !== s.bootVersion ? 'latest on this line: ' + s.latestPatch : 'latest patch'),
+      stat('Spring Framework', s.frameworkVersion || '—', ''),
+      stat('Support', '<span class="pill p-' + esc(s.support) + '">' + esc(s.support) + '</span>', 'free patches until ' + (s.ossSupportEnds || '?')),
+      stat('Commercial support', s.commercialSupportEnds || '—', 'paid, from the vendor'),
+      stat('Java for ' + (s.bootLine || 'this line'), s.javaVersions || '—', ''),
+      stat('Newest line', s.newestLine || '—', s.newestSupportEnds ? 'supported until ' + s.newestSupportEnds : '')
+    ].join('');
+    $('recommend').innerHTML = state.target ? 'Upgrade target: <b>Spring Boot ' + esc(state.target) + '</b>' +
+      (java && java.javaVersions ? ' — needs Java ' + esc(java.javaVersions) : '') + '. Change it on the Upgrade tab.' : '';
+  }
+  function stat(k, v, n) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div><div class="n">' + esc(n) + '</div></div>'; }
+
+  /* ── tabs ── */
+  var TABS = [['inbox', 'Debt inbox'], ['upgrade', 'Upgrade'], ['deps', 'Dependencies'], ['beans', 'Beans'], ['profiles', 'Profiles'], ['runtime', 'Runtime']];
+  function open() { return state.findings.filter(function (f) { return !state.triage[f.id] || state.triage[f.id].status === 'snoozed' && false; }); }
+  function render() {
+    var openCount = state.findings.filter(function (f) { return !state.triage[f.id]; }).length;
+    $('tabs').innerHTML = TABS.map(function (t) {
+      var c = t[0] === 'inbox' ? '<span class="count">' + openCount + '</span>' : '';
+      return '<button data-tab="' + t[0] + '" class="' + (state.tab === t[0] ? 'on' : '') + '">' + t[1] + c + '</button>';
+    }).join('');
+    ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
+  }
+  $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
+
+  function bySeverity(a, b) { return SEV.indexOf(a.severity) - SEV.indexOf(b.severity) || String(a.title).localeCompare(String(b.title)); }
+  function item(f, decided) {
+    var where = f.link ? '<a href="' + esc(f.link) + '" target="_blank" rel="noopener" class="mono">' + esc(f.file) + (f.line ? ':' + f.line : '') + '</a>'
+                       : (f.file ? '<span class="mono">' + esc(f.file) + (f.line ? ':' + f.line : '') + '</span>' : '');
+    var acts = decided ? '<span class="tag">' + esc(decided.status) + (decided.note ? ' — ' + esc(decided.note) : '') + '</span><button data-undo="' + esc(f.id) + '">Reopen</button>'
+      : '<button data-decide="done" data-id="' + esc(f.id) + '">Done</button><button data-decide="snoozed" data-id="' + esc(f.id) + '">Snooze</button><button data-decide="wontfix" data-id="' + esc(f.id) + '">Won\'t fix</button>';
+    return '<div class="item ' + esc(f.severity) + '"><div class="t">' + esc(f.title) + '</div>' +
+      (f.detail ? '<div class="d">' + esc(f.detail) + '</div>' : '') + (f.fix ? '<div class="fix">' + esc(f.fix) + '</div>' : '') +
+      '<div class="meta"><span class="dot s-' + esc(f.severity) + '"></span>' + esc(f.severity) + '<span class="tag">' + esc(CATEGORY[f.category] || f.category) + '</span>' + where +
+      '<span class="actions">' + acts + '</span></div></div>';
+  }
+  function renderInbox() {
+    var all = state.findings.slice().sort(bySeverity);
+    if (!all.length) { $('panel').innerHTML = '<div class="empty">' + (state.stack ? 'Reading findings…' : 'Reading the project — the first read of a repository clones it and resolves its build, which can take a minute.') + '</div>'; return; }
+    var openF = all.filter(function (f) { return !state.triage[f.id]; });
+    var decided = all.filter(function (f) { return state.triage[f.id]; });
+    var counts = {}; SEV.forEach(function (s) { counts[s] = 0; }); openF.forEach(function (f) { counts[f.severity] = (counts[f.severity] || 0) + 1; });
+    var cats = {}; openF.forEach(function (f) { cats[f.category] = (cats[f.category] || 0) + 1; });
+    var shown = openF.filter(function (f) { return !state.filter || f.category === state.filter; });
+    $('panel').innerHTML =
+      '<div class="summary">' + SEV.map(function (s) { return counts[s] ? '<div class="sev"><span class="dot s-' + s + '"></span><b>' + counts[s] + '</b> ' + s + '</div>' : ''; }).join('') +
+      '<div class="sev">✓ <b>' + decided.length + '</b> decided</div></div>' +
+      '<div class="filters"><button data-filter="" class="' + (!state.filter ? 'on' : '') + '">All ' + openF.length + '</button>' +
+      Object.keys(cats).map(function (c) { return '<button data-filter="' + esc(c) + '" class="' + (state.filter === c ? 'on' : '') + '">' + esc(CATEGORY[c] || c) + ' ' + cats[c] + '</button>'; }).join('') + '</div>' +
+      shown.slice(0, 400).map(function (f) { return item(f, null); }).join('') +
+      (shown.length > 400 ? '<div class="note">' + (shown.length - 400) + ' more — filter by category to see them.</div>' : '') +
+      (decided.length ? '<details' + (state.showDecided ? ' open' : '') + ' id="decided"><summary>Decided (' + decided.length + ')</summary>' +
+        decided.map(function (f) { return item(f, state.triage[f.id]); }).join('') + '</details>' : '');
+  }
+  $('panel').addEventListener('click', function (e) {
+    var f = e.target.closest('button[data-filter]'); if (f) { state.filter = f.dataset.filter || null; render(); return; }
+    var d = e.target.closest('button[data-decide]'); if (d) { decide(d.dataset.id, d.dataset.decide); return; }
+    var u = e.target.closest('button[data-undo]'); if (u) { undo(u.dataset.undo); return; }
+  });
+  function findingById(id) { return state.findings.filter(function (f) { return f.id === id; })[0]; }
+  function decide(id, status) {
+    var f = findingById(id); if (!f) return;
+    var note = status === 'wontfix' ? (prompt('Why won\'t this be fixed? (kept with the decision)') || '') : '';
+    var data = { findingId: id, project: state.project, status: status, title: f.title, note: note };
+    state.triage[id] = data; render();
+    gateway.repository.createEntry({ type: 'SpringTriage', data: data }).catch(function (e) {
+      delete state.triage[id]; render(); alert('Could not save the decision: ' + (e && e.message || e));
+    });
+  }
+  function undo(id) {
+    var t = state.triage[id]; delete state.triage[id]; state.showDecided = true; render();
+    gateway.repository.deleteEntry({ type: 'SpringTriage', id: id }).catch(function () {
+      return gateway.repository.createEntry({ type: 'SpringTriage', data: { findingId: id, project: state.project, status: 'reopened', title: t && t.title, note: '' } });
+    });
+  }
+
+  function renderUpgrade() {
+    var options = state.lines.filter(function (l) { return l.latestPatch && l.support !== 'unsupported'; });
+    var blockers = state.findings.filter(function (f) { return f.category === 'upgrade-blocker' && !state.triage[f.id]; }).sort(bySeverity);
+    var target = state.lines.filter(function (l) { return l.latestPatch === state.target; })[0];
+    $('panel').innerHTML = '<div class="row">Upgrade to <select id="target">' + options.map(function (l) {
+        return '<option value="' + esc(l.latestPatch) + '"' + (l.latestPatch === state.target ? ' selected' : '') + '>Spring Boot ' + esc(l.latestPatch) + ' (' + esc(l.support) + ', Java ' + esc(l.javaVersions || '?') + ')</option>';
+      }).join('') + '</select><button id="copyplan">Copy upgrade plan for your coding agent</button></div>' +
+      (target ? '<div class="note warn" style="color:var(--dim)">Spring Boot ' + esc(target.latestPatch) + ' needs Java ' + esc(target.javaVersions || '?') + '; its line is ' + esc(target.support) + ', free patches until ' + esc(target.ossSupportEnds) + '.</div>' : '') +
+      (state.upgrade == null ? '<div class="empty">Reading what ' + esc(state.target) + ' changes — the first time downloads its Spring Boot jars.</div>' : '') +
+      (blockers.length ? blockers.map(function (f) { return item(f, null); }).join('') : (state.upgrade ? '<div class="empty">Nothing found that blocks this upgrade.</div>' : ''));
+    var sel = $('target'); if (sel) sel.addEventListener('change', function () {
+      state.findings = state.findings.filter(function (f) { return f.id.indexOf('upgrade-config:') !== 0; });
+      state.target = sel.value; state.upgrade = null; renderStack(); render(); loadUpgrade();
+    });
+    var cp = $('copyplan'); if (cp) cp.addEventListener('click', function () {
+      navigator.clipboard.writeText(plan(blockers)).then(function () { cp.textContent = 'Copied — paste it to your coding agent'; });
+    });
+  }
+  function plan(blockers) {
+    var s = state.stack || {};
+    var lines = ['# Upgrade plan: Spring Boot ' + (s.bootVersion || '?') + ' → ' + state.target, '',
+      'Project: ' + state.project, 'Generated from the code at the commit read; each step names the file and line.', ''];
+    var groups = {};
+    blockers.forEach(function (f) { (groups[f.title.split(':')[0]] = groups[f.title.split(':')[0]] || []).push(f); });
+    var n = 1;
+    Object.keys(groups).forEach(function (g) {
+      var fs = groups[g];
+      lines.push(n++ + '. ' + fs[0].fix);
+      fs.forEach(function (f) { lines.push('   - ' + f.title + ' — ' + f.file + (f.line ? ':' + f.line : '')); });
+    });
+    lines.push('', 'Then build and run the tests after each step. Verify with: mvn -q verify');
+    return lines.join('\n');
+  }
+
+  function renderDeps() {
+    var v = state.findings.filter(function (f) { return f.category === 'vulnerability' || f.category === 'dependencies'; }).sort(bySeverity);
+    $('panel').innerHTML = (v.length ? v.map(function (f) { return item(f, state.triage[f.id]); }).join('') : '<div class="empty">Reading dependencies…</div>') +
+      '<details id="alladv"><summary>Every advisory, one by one</summary><div id="advlist" class="empty">Open to read them.</div></details>';
+    $('alladv').addEventListener('toggle', function () {
+      if (!this.open || state.advisories) return showAdvisories();
+      view('Vulnerabilities', { project: state.project }).then(function (rows) { state.advisories = rows; showAdvisories(); });
+    });
+    function showAdvisories() {
+      if (!state.advisories) return;
+      $('advlist').className = ''; $('advlist').innerHTML = table(state.advisories, [['title', 'Advisory'], ['detail', 'Ids'], ['fix', 'Fix'],
+        ['link', '', function (r) { return r.link ? '<a target="_blank" rel="noopener" href="' + esc(r.link) + '">details</a>' : ''; }]]);
+    }
+  }
+  function table(rows, cols) {
+    if (!rows.length) return '<div class="empty">None.</div>';
+    return '<table><tr>' + cols.map(function (c) { return '<th>' + esc(c[1]) + '</th>'; }).join('') + '</tr>' + rows.map(function (r) {
+      return '<tr>' + cols.map(function (c) { return '<td>' + (c[2] ? c[2](r) : esc(Array.isArray(r[c[0]]) ? r[c[0]].join(', ') : r[c[0]])) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</table>';
+  }
+  function at(r) { return r.link ? '<a class="mono" target="_blank" rel="noopener" href="' + esc(r.link) + '">' + esc(r.file) + ':' + esc(r.line) + '</a>' : '<span class="mono">' + esc(r.file) + ':' + esc(r.line) + '</span>'; }
+  function renderBeans() {
+    if (!state.beans) { $('panel').innerHTML = '<div class="empty">Reading beans…</div>'; view('Beans', { project: state.project }).then(function (r) { state.beans = r; render(); }); return; }
+    $('panel').innerHTML = '<div class="sub" style="margin-bottom:10px">' + state.beans.length + ' beans declared in source. Paste /actuator/beans on the Runtime tab to see what actually got created.</div>' +
+      table(state.beans, [['bean', 'Bean', function (r) { return '<span class="mono">' + esc(r.bean) + '</span>'; }], ['declaredBy', 'Declared by'], ['profiles', 'Profiles'], ['conditions', 'Conditions'], ['file', 'Where', at]]);
+  }
+  function renderProfiles() {
+    if (!state.profiles) { $('panel').innerHTML = '<div class="empty">Reading profiles…</div>'; view('Profiles', { project: state.project }).then(function (r) { state.profiles = r; render(); }); return; }
+    $('panel').innerHTML = table(state.profiles.slice().sort(function (a, b) { return String(a.profile).localeCompare(String(b.profile)); }),
+      [['profile', 'Profile', function (r) { return '<b>' + esc(r.profile) + '</b>'; }], ['where', 'Used in'], ['what', 'What'], ['file', 'Where', at]]);
+  }
+  var RUNTIME = [['WhyNotApplied', '/actuator/conditions', 'Why isn\'t my bean created?'], ['RuntimeBeans', '/actuator/beans', 'Beans actually created'],
+                 ['EffectiveSettings', '/actuator/env', 'Which setting won'], ['ShippedVulnerabilities', '/actuator/sbom/application', 'Vulnerabilities in what shipped']];
+  function renderRuntime() {
+    $('panel').innerHTML = '<div class="row"><select id="rt">' + RUNTIME.map(function (r, i) { return '<option value="' + i + '">' + esc(r[2]) + ' — paste ' + esc(r[1]) + '</option>'; }).join('') +
+      '</select><button class="primary" id="rtgo">Explain</button></div>' +
+      '<textarea id="rtjson" placeholder="Run your app with management.endpoints.web.exposure.include=*, then: curl -s localhost:8080/actuator/conditions | pbcopy — and paste it here."></textarea><div id="rtout" style="margin-top:12px"></div>';
+    $('rtgo').addEventListener('click', function () {
+      var r = RUNTIME[Number($('rt').value)], json = $('rtjson').value.trim();
+      if (!json) return;
+      $('rtout').innerHTML = '<div class="empty">Reading…</div>';
+      view(r[0], { actuator: json }).then(function (rows) {
+        $('rtout').innerHTML = rows.length ? table(rows, Object.keys(rows[0]).map(function (k) { return [k, k]; })) : '<div class="empty">Nothing — check that the JSON is from ' + esc(r[1]) + '.</div>';
+      }).catch(function (e) { $('rtout').innerHTML = '<div class="note warn">' + esc(e && e.message || e) + '</div>'; });
+    });
+  }
+
+  /* ── start ── */
+  $('chips').innerHTML = SAMPLES.map(function (s, i) { return '<button type="button" data-sample="' + i + '">' + esc(s.name) + '</button>'; }).join('');
+  $('chips').addEventListener('click', function (e) { var b = e.target.closest('button[data-sample]'); if (b) analyze(SAMPLES[Number(b.dataset.sample)].key); });
+  $('form').addEventListener('submit', function (e) { e.preventDefault(); analyze($('project').value); });
+  function fromHash() {
+    var m = location.hash.match(/^#project=(.+)$/);
+    if (m) { var key = decodeURIComponent(m[1]); if (key !== state.project && key.length < 400) analyze(key); }
+  }
+  addEventListener('hashchange', fromHash);
+  if (embabel.manifest && embabel.manifest.ready) embabel.manifest.ready.then(fromHash).catch(fromHash); else fromHash();
+})();
+</script>
+</body>
+</html>
