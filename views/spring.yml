@@ -55,34 +55,40 @@
     project: { type: string, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
-    WHERE j.groupId = 'org.springframework.boot' AND j.jarPath IS NOT NULL
+    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
+       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
     MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
     WITH p, collect(bp) AS props
-    WITH p, props, [x IN props | x.name] AS known,
-         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | x.name] AS open
+    WITH p, props,
+         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | toLower(replace(replace(x.name, '-', ''), '_', ''))] AS open
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
     WHERE cp.name = 'ConfigurationProperties' OR cp.name = 'Value'
-    WITH p, props, known, open,
+    WITH p, props, open,
          collect(DISTINCT CASE WHEN cp.name = 'ConfigurationProperties'
                    THEN coalesce([x IN cp.attributes WHERE x STARTS WITH 'prefix=' | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
          collect(DISTINCT CASE WHEN cp.name = 'Value' THEN split(split(split(cp.value, '${')[1], '}')[0], ':')[0] END) AS valueKeys
     MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
-    WHERE s.path CONTAINS 'src/main/resources' AND (s.fileName STARTS WITH 'application' OR s.fileName STARTS WITH 'bootstrap')
+    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
+      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
       AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
-    WITH s, props, known, open, [x IN ownPrefixes WHERE x IS NOT NULL] AS ownPrefixes, [x IN valueKeys WHERE x IS NOT NULL] AS valueKeys,
-         split(s.name, '[')[0] AS base
-    WITH s, base, ownPrefixes, valueKeys, known, open, [x IN props WHERE x.name = base][0] AS match
+    WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
+         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys,
+         toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
+    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = base][0] AS match
     WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
       AND NOT ANY(x IN valueKeys WHERE base = x)
       AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
       AND (match IS NULL OR match.deprecated)
     RETURN 'config:' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
-           CASE WHEN match IS NULL THEN 'medium' WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
+           CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'medium'
+                WHEN match IS NULL THEN 'low' WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
            'configuration' AS category,
-           CASE WHEN match IS NULL THEN 'Spring Boot binds no property ' + s.name
+           CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'Spring Boot binds no property ' + s.name
+                WHEN match IS NULL THEN 'Undocumented setting ' + s.name
                 WHEN match.deprecationLevel = 'error' THEN s.name + ' no longer binds'
                 ELSE s.name + ' is deprecated' END AS title,
-           CASE WHEN match IS NULL THEN 'Nothing in the Spring Boot jars this project resolves documents it, and no @ConfigurationProperties or @Value of the project reads it: a typo, or a property from another Spring Boot version, does nothing.'
+           CASE WHEN match IS NULL THEN 'No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.'
                 WHEN match.deprecationLevel = 'error' THEN 'Spring Boot removed it' + coalesce(' in ' + match.deprecatedSince, '') + ': the setting is silently ignored.' + coalesce(' ' + match.deprecationReason, '')
                 ELSE coalesce(match.deprecationReason, 'Deprecated') + coalesce(' (since ' + match.deprecatedSince + ')', '') + '; it still binds, for now.' END AS detail,
            CASE WHEN match IS NULL THEN 'Check the spelling against the Spring Boot reference, or remove it.'
@@ -108,8 +114,10 @@
     WHERE bp.deprecated
     WITH collect(bp) AS dropped
     MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
-    WHERE s.path CONTAINS 'src/main/resources' AND (s.fileName STARTS WITH 'application' OR s.fileName STARTS WITH 'bootstrap')
-    WITH s, [x IN dropped WHERE x.name = split(s.name, '[')[0]][0] AS match
+    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
+      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
+    WITH s, [x IN dropped WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', ''))][0] AS match
     WHERE match IS NOT NULL
     RETURN 'upgrade-config:' + $target + ':' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
            CASE WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
@@ -130,7 +138,7 @@
     project: { type: string, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
-    WHERE d.depth > 0
+    WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
     WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + ':' + d.artifactId AS artifact, head(collect(d)) AS d
     MATCH (d)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
     OPTIONAL MATCH (a)-[:FIXED_IN]->(f:AdvisoryFix)
@@ -158,7 +166,7 @@
     project: { type: string, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
-    WHERE d.depth > 0
+    WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
     WITH DISTINCT d.coordinates AS coordinates, d.version AS version, d.groupId + ':' + d.artifactId AS artifact, head(collect(d)) AS d
     MATCH (d)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
     OPTIONAL MATCH (a)-[:FIXED_IN]->(f:AdvisoryFix)

@@ -55,11 +55,16 @@
        OR i.name STARTS WITH 'javax.annotation.PreDestroy' OR i.name STARTS WITH 'javax.transaction'
        OR i.name STARTS WITH 'javax.inject' OR i.name STARTS WITH 'javax.ws.rs' OR i.name STARTS WITH 'javax.mail'
        OR i.name STARTS WITH 'javax.jms' OR i.name STARTS WITH 'javax.websocket'
-    RETURN 'jakarta:' + i.path + ':' + toString(i.line) AS id, 'high' AS severity, 'upgrade-blocker' AS category,
-           'javax → jakarta: ' + i.name AS title,
-           'Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*. This import does not compile there.' AS detail,
-           'import ' + replace(i.name, 'javax.', 'jakarta.') + ' (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta)' AS fix,
-           i.path AS file, i.line AS line, i.link AS link
+    WITH split(i.name, '.')[0] + '.' + split(i.name, '.')[1] AS pkg, i ORDER BY i.path, i.line
+    WITH pkg, collect(i) AS uses, collect(DISTINCT i.path) AS files
+    RETURN 'jakarta:' + pkg AS id, 'high' AS severity, 'upgrade-blocker' AS category,
+           pkg + ' → ' + replace(pkg, 'javax.', 'jakarta.') + ': ' + toString(size(uses)) + ' import' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END
+             + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END AS title,
+           'Spring Boot 3 / Spring Framework 6 use Jakarta EE 9+, where javax.* became jakarta.*; these do not compile there. In: '
+             + reduce(t = '', f IN files[0..8] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1])
+             + CASE WHEN size(files) > 8 THEN ', …' ELSE '' END AS detail,
+           'Rename the imports to ' + replace(pkg, 'javax.', 'jakarta.') + '.* (OpenRewrite recipe org.openrewrite.java.migrate.jakarta.JavaxMigrationToJakarta does all of them).' AS fix,
+           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link
     UNION
     MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]->(t:JavaProjectType)
     WHERE ANY(s IN t.extends WHERE s ENDS WITH 'WebSecurityConfigurerAdapter' OR s ENDS WITH 'WebMvcConfigurerAdapter')
@@ -89,12 +94,17 @@
            a.path AS file, a.line AS line, a.link AS link
     UNION
     MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
-    WHERE i.name IN ['org.junit.Test', 'org.junit.runner.RunWith', 'org.junit.Before', 'org.junit.After', 'org.junit.Assert']
-    RETURN 'junit4:' + i.path + ':' + toString(i.line) AS id, 'medium' AS severity, 'testing' AS category,
-           'JUnit 4: ' + i.name AS title,
-           'Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Boot 3 no longer manages.' AS detail,
-           'Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration)' AS fix,
-           i.path AS file, i.line AS line, i.link AS link
+    WHERE i.name IN ['org.junit.Test', 'org.junit.runner.RunWith', 'org.junit.Before', 'org.junit.After', 'org.junit.Assert', 'org.junit.BeforeClass']
+    WITH i ORDER BY i.path, i.line
+    WITH collect(DISTINCT i.path) AS files, collect(i) AS uses
+    WHERE size(files) > 0
+    RETURN 'junit4' AS id, 'medium' AS severity, 'testing' AS category,
+           'JUnit 4 in ' + toString(size(files)) + ' test file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END AS title,
+           'Spring Boot 2.4+ ships JUnit 5 only; JUnit 4 tests need the vintage engine, which Spring Boot 3 no longer manages. In: '
+             + reduce(t = '', f IN files[0..8] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1])
+             + CASE WHEN size(files) > 8 THEN ', …' ELSE '' END AS detail,
+           'Move to org.junit.jupiter (OpenRewrite recipe org.openrewrite.java.testing.junit5.JUnit4to5Migration).' AS fix,
+           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link
     UNION
     MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport {name: 'org.springframework.boot.context.properties.ConstructorBinding'})
     RETURN 'constructor-binding:' + i.path AS id, 'medium' AS severity, 'upgrade-blocker' AS category,

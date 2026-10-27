@@ -44,8 +44,8 @@
   userAnchor: false
   description: "A security advisory affecting one exact version of a dependency, from deps.dev. Its title and CVE ids are on DESCRIBED_BY, the versions that fix it on FIXED_IN. Reach it from a ProjectDependency or a RuntimeComponent via HAS_ADVISORY."
   virtualJoins:
-    - { anchorLabel: ProjectDependency, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories }
-    - { anchorLabel: RuntimeComponent, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories }
+    - { anchorLabel: ProjectDependency, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000 }
+    - { anchorLabel: RuntimeComponent, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000 }
   properties:
     advisoryId: { identity: true, description: "GHSA-… id." }
     coordinates: "The artifact version it affects, groupId:artifactId:version."
@@ -55,7 +55,7 @@
   userAnchor: false
   description: "What an advisory is: title, CVE aliases, CVSS 3 score and its page."
   virtualJoins:
-    - { anchorLabel: DependencyAdvisory, relationship: DESCRIBED_BY, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryDetails }
+    - { anchorLabel: DependencyAdvisory, relationship: DESCRIBED_BY, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryDetails, maxAnchors: 5000 }
   properties:
     advisoryId: { identity: true, description: "GHSA-… id." }
     title: "What it is."
@@ -68,7 +68,7 @@
   userAnchor: false
   description: "A version that fixes an advisory, one per maintenance line affected (from OSV). Upgrade to the fix on your own line — the one that shares your major.minor — when there is one."
   virtualJoins:
-    - { anchorLabel: DependencyAdvisory, relationship: FIXED_IN, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryFixes }
+    - { anchorLabel: DependencyAdvisory, relationship: FIXED_IN, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryFixes, maxAnchors: 5000 }
   properties:
     fixed: { identity: true, description: "A fixed version." }
     advisoryId: "The advisory."
@@ -210,7 +210,7 @@
   userAnchor: false
   description: "A version of an artifact the repositories this appliance searches (Maven Central unless the operator configured others) publish. Pin the artifact by groupId:artifactId: (:PublishedArtifact {ga:'org.springframework:spring-core'})-[:PUBLISHED]->(v:PublishedVersion). A fix that is not here is a commercial-only release."
   virtualJoins:
-    - { anchorLabel: PublishedArtifact, relationship: PUBLISHED, keyField: ga, recordKeyField: anchorKey, producer: publishedVersions, maxFanoutTotal: 60000 }
+    - { anchorLabel: PublishedArtifact, relationship: PUBLISHED, keyField: ga, recordKeyField: anchorKey, producer: publishedVersions, maxFanoutTotal: 60000, maxAnchors: 3000 }
   properties:
     id: { identity: true, description: "Coordinates." }
     version: "The version."
