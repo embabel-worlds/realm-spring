@@ -222,7 +222,7 @@ WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x
   AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
   AND NOT s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
 WITH p, props, open, ownPrefixes, valueKeys, collect(s) AS settings
-// A key another setting reads through a placeholder (`classpath:db/${database}/schema.sql`) is in use.
+// A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
 WITH props, open, ownPrefixes, settings,
      valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, &#x27;&#x27;), &#x27;${&#x27;)[1..] | split(split(k, &#x27;}&#x27;)[0], &#x27;:&#x27;)[0]]) AS valueKeys
 UNWIND settings AS s
