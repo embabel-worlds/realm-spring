@@ -221,6 +221,11 @@ WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x
   AND NOT s.fileName STARTS WITH &#x27;messages&#x27; AND NOT s.fileName STARTS WITH &#x27;logback&#x27; AND NOT s.fileName STARTS WITH &#x27;log4j&#x27;
   AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
   AND NOT s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
+WITH p, props, open, ownPrefixes, valueKeys, collect(s) AS settings
+// A key another setting reads through a placeholder (`classpath:db/${database}/schema.sql`) is in use.
+WITH props, open, ownPrefixes, settings,
+     valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, &#x27;&#x27;), &#x27;${&#x27;)[1..] | split(split(k, &#x27;}&#x27;)[0], &#x27;:&#x27;)[0]]) AS valueKeys
+UNWIND settings AS s
 WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS ownPrefixes,
      [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS valueKeys,
      toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) AS base
@@ -571,7 +576,13 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (!state.target) { mark('upgrade', 'fail', 'No target'); return; }
     mark('upgrade', 'run', 'Upgrade path → ' + state.target);
     var key = state.project, target = state.target;
-    view('UpgradeConfiguration', { project: key, target: target }).then(function (rows) {
+    var upgrade = function () { return view('UpgradeConfiguration', { project: key, target: target }); };
+    upgrade().catch(function () {
+      // The first check against a release downloads its Spring Boot jars (about 60 for Spring Boot 4);
+      // the download goes on after a slow call gives up, so asking again finds them.
+      mark('upgrade', 'run', 'Downloading Spring Boot ' + target + '’s jars — asking again');
+      return upgrade();
+    }).then(function (rows) {
       if (key !== state.project || target !== state.target) return;
       state.upgrade = rows; add(rows); mark('upgrade', 'done', 'Upgrade path → ' + target); render();
     }).catch(function (e) { mark('upgrade', 'fail'); console.warn(e); });
