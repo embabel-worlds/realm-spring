@@ -73,7 +73,7 @@
       AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
       AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
     WITH p, props, open, ownPrefixes, valueKeys, collect(s) AS settings
-    // A key another setting reads through a placeholder (`classpath:db/${database}/schema.sql`) is in use.
+    // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
     WITH props, open, ownPrefixes, settings,
          valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, ''), '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
     UNWIND settings AS s
