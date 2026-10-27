@@ -406,7 +406,11 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     state = Object.assign(state, { project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     $('report').hidden = false; steps(); renderStack(); render();
     mark('code', 'run');
-    view('StackCard', { project: key }).then(function (rows) {
+    var first = function () { return view('StackCard', { project: key }); };
+    first().catch(function () {
+      mark('code', 'run', 'First read of this project: cloning and resolving its build…');
+      return first();
+    }).then(function (rows) {
       state.stack = rows[0] || null;
       mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion ? 'Code & build read' : 'Not a Spring Boot build?');
       renderStack();
@@ -420,7 +424,11 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       run('deps', 'VulnerableDependencies', { project: key });
       run(null, 'VersionOverrides', { project: key });
       loadUpgrade();
-    }).catch(function (e) { mark('code', 'fail', 'Could not read the project'); $('panel').innerHTML = '<div class="note warn">' + esc(e && e.message || e) + '</div>'; });
+    }).catch(function (e) {
+      mark('code', 'fail', 'Could not read the project');
+      $('panel').innerHTML = '<div class="note warn">Could not read ' + esc(key) + ': ' + esc(e && (e.message || e.error || JSON.stringify(e)) || e) +
+        '. A repository must be public on GitHub or GitLab; a folder must be in this appliance’s workspace.</div>';
+    });
   }
   function run(step, name, params) {
     if (step) mark(step, 'run');
