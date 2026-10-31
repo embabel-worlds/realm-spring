@@ -1,0 +1,30 @@
+# The licences one exact Maven artifact version is distributed under, from deps.dev — the same keyless
+# GetVersion call advisories.yml makes (`mavenVersion`, apis/deps-dev.json), read for its `licenses`
+# list instead of its `advisoryKeys`. A week's cache, as for advisories: a published version's
+# licences do not change. One call per version (the path names one), so the join's `maxAnchors`
+# is the budget, as it is for HAS_ADVISORY.
+#
+# THE LICENCE CONTRACT (realm-code-model types/artifact.yml). MavenLicence is `parents: [Licence]`
+# (types/spring.yml), so the contract's names are computed here, one Cypher expression per property
+# over the record bound as `r`: the response as deps.dev hands it over, plus the key this call was
+# made for, stamped as `coordinates` (groupId:artifactId:version) by `echoKeyAs`. `ecosystem` is the
+# constant 'maven'; `name` and `version` are the key's parts, the Artifact spelling of a Maven name;
+# `id` is `name@version`; `licences` is the response's `licenses` list, and EMPTY — not absent — when
+# deps.dev records none, because the contract says an empty list means "none recorded", which a
+# missing property would not say.
+- name: licencesByVersion
+  kind: remote
+  operation: mavenVersion
+  records: "$"
+  keyArgs: [group, artifact, version]
+  keySplit: ":"
+  echoKeyAs: coordinates
+  maxKeysPerCall: 1
+  batchSafe: false
+  compute:                           # the Licence contract; `r` is the response plus the echoed key
+    id: "split(r.coordinates, ':')[0] + ':' + split(r.coordinates, ':')[1] + '@' + split(r.coordinates, ':')[2]"
+    ecosystem: "'maven'"
+    name: "split(r.coordinates, ':')[0] + ':' + split(r.coordinates, ':')[1]"
+    version: "split(r.coordinates, ':')[2]"
+    licences: "coalesce(r.licenses, [])"
+  cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 86400 }
