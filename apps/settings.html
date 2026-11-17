@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Spring settings: chosen and by default</title>
+<script src="/api/v1/apps-runtime/v1/embabel.js"></script>
+<script type="application/embabel-app+json">
+{"version":1,"name":"spring-settings","requires":{"lenses":[],"views":["SettingsExplicit","SettingsByDefault","SettingsNeeded","ConfigurationProblems"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+</script>
+<style>
+  :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
+        --green:#6db33f;--green2:#8fd15a;--red:#ef5b5b;--orange:#f0883e;--amber:#e3b341;--blue:#58a6ff;--violet:#a78bfa;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding-bottom:48px}
+  a{color:var(--blue);text-decoration:none} a:hover{text-decoration:underline}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+  .wrap{max-width:1180px;margin:0 auto;padding:22px 20px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .logo{width:38px;height:38px;display:grid;place-items:center}
+  h1{font-size:20px;margin:0;font-weight:700} .sub{color:var(--dim);font-size:13px}
+  
+  .search{display:flex;gap:8px;margin:18px 0 8px;flex-wrap:wrap}
+  .search input,.filter{flex:1;min-width:280px;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 14px;font-size:14px}
+  .search input:focus,.filter:focus{outline:none;border-color:var(--green)}
+  button{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 13px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--dim)} button.primary{background:var(--green);color:#0b0d10;border-color:var(--green);font-weight:700}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px} .chips button{font-size:12px;padding:5px 10px;border-radius:999px;color:var(--dim)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 18px;margin:12px 0}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:14px 0}
+  .stat{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;text-align:left}
+  .stat.on{border-color:var(--green)} .stat .v{font-size:26px;font-weight:700} .stat .k{font-weight:700;margin-top:2px} .stat .n{color:var(--dim);font-size:12px;margin-top:4px}
+  table{width:100%;border-collapse:collapse;table-layout:fixed} th{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+  td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:top;overflow-wrap:anywhere} tr.click{cursor:pointer} tr.click:hover td{background:var(--surface2)}
+  .pill{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:700;white-space:nowrap}
+  .p-red{background:rgba(239,91,91,.15);color:var(--red)} .p-amber{background:rgba(227,179,65,.15);color:var(--amber)} .p-dim{background:var(--surface2);color:var(--dim)} .p-green{background:rgba(109,179,63,.15);color:var(--green2)}
+  .dim{color:var(--dim)} .val{color:var(--green2)} .was{color:var(--dim)} .desc{color:var(--dim);font-size:12.5px;margin-top:2px}
+  .notable{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px}
+  .ncard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:13px 15px} .ncard .d{font-size:18px;font-weight:700;color:var(--amber);margin:3px 0}
+  .area{margin-top:6px} .area summary{cursor:pointer;padding:8px 10px;border-bottom:1px solid var(--border)} .area summary b{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+  .state{padding:26px;text-align:center;color:var(--dim)} .err{color:var(--red)}
+  .who{background:var(--surface2);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:13px}
+  h2{font-size:16px;margin:22px 0 6px} h3{font-size:14px;margin:16px 0 4px} pre{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;overflow:auto;font-size:12px}
+  footer{color:var(--dim);font-size:12.5px;margin-top:28px} #how-it-works{display:none;margin-top:18px} #how-it-works:target{display:block}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div><h1>Spring settings: chosen, and by default</h1>
+    <div class="sub">What this application sets, and what it runs on because nobody set anything. Read from the project's files and from the Spring Boot jars it resolves.</div></div>
+  </header>
+  <form class="search" id="form">
+    <input id="key" placeholder="A GitHub repository (https://github.com/owner/repo, optionally @commit) or a folder" autocomplete="off">
+    <button class="primary" type="submit">Read settings</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div id="report" hidden>
+    <div class="stats" id="stats"></div>
+    <section id="panel"></section>
+  </div>
+  <div id="idle" class="state">Enter a project to see which of its settings somebody chose and which are Spring Boot's defaults.</div>
+
+  <section id="how-it-works">
+    <h2>How it works</h2>
+    <h3>The data, and how fresh it is</h3>
+    <p>Nothing about the project is stored. Each time you read it, the appliance reads the repository at the commit named (or the branch's
+    current commit), parses its application*.properties and YAML files and its Java source in place, resolves its Maven build, and reads the
+    configuration metadata file inside each Spring jar the build resolves. So the defaults shown are those of the Spring Boot version this
+    project runs, not of the latest release. The first read of a project downloads its jars and can take a minute; after that a commit is cached.</p>
+    <h3>What each number counts</h3>
+    <p><b>Set in files</b> counts lines: a key set in three profile files counts three times. <b>Defaults in force</b> counts the settings the
+    project's Spring jars document that no application file sets, leaving out deprecated ones. About half have a documented default; for the
+    rest the value is decided in code, by the library, or by what is on the classpath. <b>No effect</b> counts settings in the files that
+    nothing binds or that Spring Boot has removed. <b>Needed, supplied by nothing</b> counts <span class="mono">@Value("${...}")</span>
+    placeholders in main source with no value in any file and no fallback.</p>
+    <h3>What this cannot see</h3>
+    <p>Only files and jars are read. An environment variable, a command-line argument or a config server can set any of these at run time,
+    and can supply a setting shown as supplied by nothing. A default chosen by a <span class="mono">@Bean</span> method in the project's own
+    code does not appear. Where a project has a reachable actuator, the Spring Stack Report's runtime views say which source actually won.</p>
+    <h3>What an empty panel means</h3>
+    <p>"Nothing set" means the project has no application file under src/main/resources. No defaults means the build resolved no Spring jar
+    with configuration metadata: check that the project builds with Maven. An error is shown as an error, never as an empty list.</p>
+    <h3>What the appliance did here</h3>
+    <p>One query joins three things read live: the project's settings files, its resolved dependency tree, and a metadata file inside each
+    resolved jar. Clicking a setting adds a fourth, the repository's history, to say which change set it. No index or copy of any of them exists.</p>
+    <h3>Every view, with the Cypher that runs</h3>
+    <details><summary><b>SettingsExplicit</b> — SELECT THIS for &quot;what does this application set&quot;, &quot;which settings did we choose&quot;, &quot;what configuration differs from Spring Boot&#x27;s defaults&quot;. Every setting in the project&#x27;s application*.properties and YAML files with its value, file and line, beside what Spring Boot would have used: the documented default, what the setting does, and `sameAsDefault` when the project sets the value Spring Boot already uses. `entryOf` names the map setting a key is an entry of (logging.level.*, spring.jpa.properties.*): such an entry has no default because nothing is there until it is added. `documented` false with no `entryOf` is one of the project&#x27;s own keys or a typo (ConfigurationProblems says which are typos). Downloads the project&#x27;s Spring Boot jars the first time.</summary><pre>MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
+WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH &#x27;org.springframework&#x27; OR j.artifactId CONTAINS &#x27;spring-boot&#x27;
+   OR j.artifactId CONTAINS &#x27;starter&#x27; OR j.artifactId CONTAINS &#x27;autoconfigure&#x27;)
+MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
+WITH p, collect(bp) AS props
+MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x27;/META-INF/&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;messages&#x27; AND NOT s.fileName STARTS WITH &#x27;logback&#x27; AND NOT s.fileName STARTS WITH &#x27;log4j&#x27;
+  AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
+WITH s, props, toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) AS base
+WITH s, base, [x IN props WHERE toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) = base][0] AS m,
+     [x IN props WHERE (x.type STARTS WITH &#x27;java.util.Map&#x27; OR x.type STARTS WITH &#x27;java.util.List&#x27;)
+        AND base STARTS WITH toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) + &#x27;.&#x27;][0] AS under
+RETURN s.name AS key, s.value AS value, s.fileName AS file, s.path AS path, s.line AS line, s.link AS link,
+       m IS NOT NULL AS documented, under.name AS entryOf, m.defaultValue AS default, m.description AS description, m.type AS type,
+       (m.defaultValue IS NOT NULL AND toString(m.defaultValue) = toString(s.value)) AS sameAsDefault,
+       coalesce(m.deprecated, false) AS deprecated
+ORDER BY path, line LIMIT 1000
+</pre></details>
+<details><summary><b>SettingsByDefault</b> — SELECT THIS for &quot;what defaults is this application running on&quot;, &quot;which settings has nobody chosen&quot;, &quot;what is the connection pool size if we never set it&quot;. The settings Spring Boot binds for this project that NO application file sets, each with the default in force and what it does. `notable` marks the few whose default most often surprises in production (open session in view, pool and thread limits, upload size, shutdown, what the actuator exposes), with `why` saying what the default means; `libraryDefault` is the library&#x27;s own default where Spring Boot documents none. `default` empty and `libraryDefault` empty means the value is decided in code, by the library or by what is on the classpath. Narrow with `prefix` (&#x27;server.&#x27;, &#x27;spring.datasource&#x27;), or `notableOnly`. This is what the files and jars say: an environment variable or command-line argument at run time can still set any of them.</summary><pre>MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
+WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH &#x27;org.springframework&#x27; OR j.artifactId CONTAINS &#x27;spring-boot&#x27;
+   OR j.artifactId CONTAINS &#x27;starter&#x27; OR j.artifactId CONTAINS &#x27;autoconfigure&#x27;)
+MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
+WHERE NOT coalesce(bp.deprecated, false)
+WITH p, collect(bp) AS props
+OPTIONAL MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.path CONTAINS &#x27;src/main/resources&#x27;
+WITH props, collect(DISTINCT toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))) AS set,
+     [{k: &#x27;spring.jpa.open-in-view&#x27;, why: &#x27;A database session stays open while the web view renders, so templates can load data lazily and queries run outside your transactions.&#x27;},
+      {k: &#x27;spring.datasource.hikari.maximum-pool-size&#x27;, library: &#x27;10&#x27;, why: &#x27;At most this many database connections. When all are in use, the next request waits.&#x27;},
+      {k: &#x27;spring.datasource.hikari.connection-timeout&#x27;, library: &#x27;30000&#x27;, why: &#x27;Milliseconds a request waits for a database connection before it fails.&#x27;},
+      {k: &#x27;spring.transaction.default-timeout&#x27;, why: &#x27;No timeout: a transaction runs as long as it takes unless one is set on it.&#x27;},
+      {k: &#x27;server.tomcat.threads.max&#x27;, why: &#x27;The most requests served at the same time; further requests queue.&#x27;},
+      {k: &#x27;server.port&#x27;, why: &#x27;The port the application listens on.&#x27;},
+      {k: &#x27;server.shutdown&#x27;, why: &#x27;Whether requests in flight are allowed to finish when the application stops.&#x27;},
+      {k: &#x27;spring.lifecycle.timeout-per-shutdown-phase&#x27;, why: &#x27;How long a graceful shutdown waits for requests in flight.&#x27;},
+      {k: &#x27;server.servlet.session.timeout&#x27;, why: &#x27;How long an idle session lives.&#x27;},
+      {k: &#x27;spring.servlet.multipart.max-file-size&#x27;, why: &#x27;An upload larger than this is rejected.&#x27;},
+      {k: &#x27;server.compression.enabled&#x27;, why: &#x27;Whether responses are compressed.&#x27;},
+      {k: &#x27;server.error.include-stacktrace&#x27;, why: &#x27;Whether an error response carries the stack trace.&#x27;},
+      {k: &#x27;spring.threads.virtual.enabled&#x27;, why: &#x27;Whether requests and tasks run on virtual threads.&#x27;},
+      {k: &#x27;spring.main.lazy-initialization&#x27;, why: &#x27;Whether beans are created at startup or on first use; lazy hides a wiring error until the first request that needs the bean.&#x27;},
+      {k: &#x27;spring.task.execution.pool.core-size&#x27;, why: &#x27;Threads kept for @Async and other background tasks.&#x27;},
+      {k: &#x27;spring.sql.init.mode&#x27;, why: &#x27;Whether schema and data scripts run at startup: by default only against an embedded database.&#x27;},
+      {k: &#x27;spring.mvc.problemdetails.enabled&#x27;, why: &#x27;Whether errors are returned in the standard problem-details format.&#x27;},
+      {k: &#x27;management.endpoints.web.exposure.include&#x27;, why: &#x27;Which actuator endpoints are reachable over HTTP.&#x27;},
+      {k: &#x27;management.endpoint.health.show-details&#x27;, why: &#x27;Whether the health endpoint says which component is unhealthy, and to whom.&#x27;}] AS notables
+UNWIND props AS bp
+WITH bp, set, notables
+WHERE NOT toLower(replace(replace(bp.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) IN set AND ($prefix = &#x27;&#x27; OR bp.name STARTS WITH $prefix)
+WITH bp.name AS key, head(collect(bp)) AS bp, notables
+WITH key, bp, head([n IN notables WHERE n.k = key]) AS n
+WHERE NOT $notableOnly OR n IS NOT NULL
+RETURN key, bp.defaultValue AS default, n.library AS libraryDefault, bp.description AS description, bp.type AS type,
+       split(key, &#x27;.&#x27;)[0] + CASE WHEN size(split(key, &#x27;.&#x27;)) &gt; 2 THEN &#x27;.&#x27; + split(key, &#x27;.&#x27;)[1] ELSE &#x27;&#x27; END AS area,
+       n IS NOT NULL AS notable, n.why AS why
+ORDER BY notable DESC, key
+LIMIT $limit
+</pre></details>
+<details><summary><b>SettingsNeeded</b> — SELECT THIS for &quot;which settings does the code require&quot;, &quot;will this start without configuration&quot;, &quot;which @Value has no value&quot;. Every setting the code asks for with @Value(&quot;${...}&quot;), with where it is asked for and where it is supplied (test sources are left out). `supplied` is &#x27;in a file&#x27; (with the files), &#x27;by a fallback in the code&#x27; (the `${key:fallback}` form), or &#x27;by nothing in the repository&#x27;: that one must come from the environment at run time, and the application fails to start with &quot;Could not resolve placeholder&quot; when it does not.</summary><pre>MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
+WHERE a.name = &#x27;Value&#x27; AND a.value CONTAINS &#x27;${&#x27; AND NOT a.path CONTAINS &#x27;src/test/&#x27;
+WITH p, a, split(split(a.value, &#x27;${&#x27;)[1], &#x27;}&#x27;)[0] AS inner
+WITH p, a, split(inner, &#x27;:&#x27;)[0] AS key, inner CONTAINS &#x27;:&#x27; AS hasFallback,
+     CASE WHEN inner CONTAINS &#x27;:&#x27; THEN substring(inner, size(split(inner, &#x27;:&#x27;)[0]) + 1) END AS fallback
+OPTIONAL MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+WHERE s.name = key
+WITH a, key, hasFallback, fallback, collect(DISTINCT s.fileName) AS files
+RETURN key, CASE WHEN size(files) &gt; 0 THEN &#x27;in a file&#x27; WHEN hasFallback THEN &#x27;by a fallback in the code&#x27; ELSE &#x27;by nothing in the repository&#x27; END AS supplied,
+       files, fallback, a.owner AS class, a.targetKind AS on, a.path AS path, a.line AS line, a.link AS link
+ORDER BY size(files), hasFallback, key
+LIMIT 500
+</pre></details>
+
+    <p><b>ConfigurationProblems</b> and <b>GitBlameLine</b> are documented in the Spring Stack Report and realm-git.</p>
+  </section>
+  <footer>Defaults and descriptions are Spring Boot's own, from its jars. Not affiliated with or endorsed by the Spring team or Broadcom. ·
+    <a href="stack.html">Spring Stack Report</a> · <a href="#how-it-works">How it works</a></footer>
+</div>
+
+<div id="embabel-badge" style="position:fixed;bottom:0;left:0;right:0;text-align:center;padding:6px 0;background:rgba(11,13,16,.92);border-top:1px solid #232a33;font-size:.75rem;color:#8b95a3;z-index:9999;pointer-events:none;">
+  Created with <a href="https://embabel.com" target="_blank" rel="noopener noreferrer" style="color:#6db33f;pointer-events:auto;">Embabel</a>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var SAMPLES = [
+    { key: 'https://github.com/spring-projects/spring-petclinic', name: 'Spring PetClinic' },
+    { key: 'https://github.com/spring-petclinic/spring-petclinic-rest', name: 'PetClinic REST' }
+  ];
+  var state = { project: null, tab: 'set', set: null, notable: null, all: null, problems: null, needed: null, filter: '', run: 0 };
+  function $(id) { return document.getElementById(id); }
+  function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function rowsOf(r) {
+    if (!r) return [];
+    if (Array.isArray(r)) return r;
+    if (Array.isArray(r.data)) return r.data;
+    if (Array.isArray(r.rows)) return r.rows;
+    if (r.data && Array.isArray(r.data.rows)) return r.data.rows;
+    if (r.result && Array.isArray(r.result.rows)) return r.result.rows;
+    return [];
+  }
+  /* These checks read every candidate, so matching none is an answer, which the runtime reports as FETCHED_NOT_MATCHED. */
+  function view(name, params) {
+    return embabel.views.invoke(name, params).then(rowsOf).catch(function (e) {
+      if (e && e.reason === 'FETCHED_NOT_MATCHED') return [];
+      throw e;
+    });
+  }
+  function shown(v) { return Array.isArray(v) ? v.join(', ') : String(v); }
+  function message(e) { return esc((e && (e.message || e.reason)) || 'The appliance did not answer.'); }
+
+  function load(key) {
+    var run = ++state.run;
+    state.project = key; state.set = state.notable = state.all = state.problems = state.needed = null; state.errors = {}; state.tab = 'set';
+    $('idle').hidden = true; $('report').hidden = false; draw();
+    function take(slot, p) {
+      p.then(function (rows) { if (run === state.run) { state[slot] = rows; draw(); } })
+       .catch(function (e) { if (run === state.run) { state.errors[slot] = e; state[slot] = []; draw(); } });
+    }
+    /* Three calls on load, one per panel; the full list of defaults waits until it is asked for. */
+    take('set', view('SettingsExplicit', { project: key }));
+    take('notable', view('SettingsByDefault', { project: key, notableOnly: true }));
+    take('problems', view('ConfigurationProblems', { project: key }));
+    take('needed', view('SettingsNeeded', { project: key }));
+  }
+  function loadAll() {
+    if (state.all || state.loadingAll) return;
+    var run = state.run; state.loadingAll = true; draw();
+    view('SettingsByDefault', { project: state.project }).then(function (rows) {
+      if (run === state.run) { state.all = rows; state.loadingAll = false; draw(); }
+    }).catch(function (e) { if (run === state.run) { state.errors.all = e; state.all = []; state.loadingAll = false; draw(); } });
+  }
+
+  function noEffect(s) {
+    return (state.problems || []).some(function (p) { return p.file === s.path && p.line === s.line; });
+  }
+  function stat(tab, value, title, note) {
+    return '<button class="stat' + (state.tab === tab ? ' on' : '') + '" data-tab="' + tab + '"><div class="v">' + (value == null ? '…' : value) +
+      '</div><div class="k">' + title + '</div><div class="n">' + note + '</div></button>';
+  }
+  function draw() {
+    var unsupplied = state.needed ? state.needed.filter(function (n) { return n.supplied === 'by nothing in the repository'; }).length : null;
+    $('stats').innerHTML =
+      stat('set', state.set ? state.set.length : null, 'Set in files', 'Lines in application files; a key set in three profiles counts three times.') +
+      stat('defaults', state.all ? state.all.length : (state.notable ? state.notable.length + ' shown' : null), 'Defaults in force',
+           state.all ? 'Settings Spring Boot binds here that no file sets.' : 'The ones that most often matter. Open to count them all.') +
+      stat('noeffect', state.problems ? state.problems.length : null, 'No effect', 'Set in a file, but nothing binds it or Spring Boot removed it.') +
+      stat('needed', unsupplied, 'Needed, supplied by nothing', 'Asked for by @Value with no value in any file and no fallback.');
+    var p = $('panel');
+    if (state.tab === 'set') p.innerHTML = drawSet();
+    else if (state.tab === 'defaults') p.innerHTML = drawDefaults();
+    else if (state.tab === 'noeffect') p.innerHTML = drawProblems();
+    else p.innerHTML = drawNeeded();
+    var f = $('filter'); if (f) { f.value = state.filter; f.oninput = function () { state.filter = f.value; var at = f.selectionStart; draw(); var g = $('filter'); g.focus(); g.setSelectionRange(at, at); }; }
+  }
+  function waiting(what) { return '<div class="state">' + what + ' The first read of a project downloads its Spring jars and can take a minute.</div>'; }
+  function failed(slot) { return state.errors[slot] ? '<div class="state err">This could not be read: ' + message(state.errors[slot]) + '</div>' : ''; }
+
+  function drawSet() {
+    if (!state.set) return waiting('Reading the application files.');
+    if (state.errors.set) return failed('set');
+    if (!state.set.length) return '<div class="state">Nothing set: this project has no application*.properties or YAML file under src/main/resources.</div>';
+    var same = state.set.filter(function (s) { return s.sameAsDefault; }).length;
+    var out = '<div class="card"><div class="sub">' + state.set.length + ' settings in the project\'s application files, in file order. ' +
+      (same ? same + ' set the value Spring Boot already uses. ' : '') + 'Click a row to see which change set it.</div><table><thead><tr><th style="width:42%">Setting</th><th style="width:22%">Set to</th><th style="width:16%">Instead of</th><th>Where</th></tr></thead><tbody>';
+    state.set.forEach(function (s, i) {
+      var tag = noEffect(s) ? '<span class="pill p-red">no effect</span>'
+        : s.deprecated ? '<span class="pill p-amber">deprecated</span>'
+        : s.sameAsDefault ? '<span class="pill p-dim">same as the default</span>' : '';
+      var instead = s.default != null ? '<span class="was mono">' + esc(shown(s.default)) + '</span>'
+        : s.documented ? '<span class="dim">no fixed default</span>'
+        : s.entryOf ? '<span class="dim">nothing: an entry added to <span class="mono">' + esc(s.entryOf) + '</span></span>'
+        : '<span class="dim">not a setting Spring Boot documents</span>';
+      out += '<tr class="click" data-set="' + i + '"><td><span class="mono">' + esc(s.key) + '</span> ' + tag +
+        (s.description ? '<div class="desc">' + esc(s.description) + '</div>' : '') + '<div id="who-' + i + '"></div></td>' +
+        '<td class="mono val">' + esc(s.value) + '</td><td>' + instead + '</td>' +
+        '<td class="mono"><a href="' + esc(s.link || '#') + '" target="_blank" rel="noopener">' + esc(s.file) + ':' + esc(s.line) + '</a></td></tr>';
+    });
+    return out + '</tbody></table></div>';
+  }
+  function drawDefaults() {
+    if (!state.notable) return waiting('Reading the defaults from the project\'s Spring Boot jars.');
+    if (state.errors.notable) return failed('notable');
+    var out = '<h2>Defaults that most often matter</h2><div class="sub">Nobody set these, so the application runs on the value shown. Each is Spring Boot\'s default for the version this project resolves.</div>';
+    if (!state.notable.length) out += '<div class="state">None of the settings on the watch list is left to its default, or the build resolved no Spring jar with configuration metadata.</div>';
+    out += '<div class="notable">';
+    state.notable.forEach(function (n) {
+      var d = n.default != null ? esc(shown(n.default)) : n.libraryDefault != null ? esc(n.libraryDefault) + ' <span class="dim" style="font-size:12px;font-weight:400">the library\'s own default</span>' : 'not set at all';
+      out += '<div class="ncard"><div class="mono">' + esc(n.key) + '</div><div class="d">' + d + '</div><div>' + esc(n.why) + '</div></div>';
+    });
+    out += '</div><h2>Every default in force</h2>';
+    if (state.errors.all) return out + failed('all');
+    if (!state.all) return out + (state.loadingAll ? '<div class="state">Reading every setting the project\'s Spring jars document.</div>'
+      : '<div class="card"><button id="loadAll">Show every setting no file sets</button> <span class="sub">About a thousand for a web application, grouped by area.</span></div>');
+    var q = state.filter.toLowerCase();
+    var rows = state.all.filter(function (r) { return !q || r.key.toLowerCase().indexOf(q) >= 0 || (r.description || '').toLowerCase().indexOf(q) >= 0; });
+    var withDefault = state.all.filter(function (r) { return r.default != null; }).length;
+    out += '<div class="sub">' + state.all.length + ' settings Spring Boot binds for this project that no file sets. ' + withDefault +
+      ' have a documented default; for the other ' + (state.all.length - withDefault) + ' the value is decided in code or by the library.</div>' +
+      '<input class="filter" id="filter" placeholder="Filter by key or description, e.g. pool, timeout, tomcat" style="width:100%;margin:10px 0">';
+    if (!rows.length) return out + '<div class="state">No setting matches "' + esc(state.filter) + '".</div>';
+    var areas = {}; rows.forEach(function (r) { (areas[r.area] = areas[r.area] || []).push(r); });
+    Object.keys(areas).sort().forEach(function (a) {
+      out += '<details class="area"' + (q ? ' open' : '') + '><summary><b>' + esc(a) + '</b> <span class="dim">' + areas[a].length + '</span></summary><table><tbody>';
+      areas[a].forEach(function (r) {
+        out += '<tr><td><span class="mono">' + esc(r.key) + '</span>' + (r.description ? '<div class="desc">' + esc(r.description) + '</div>' : '') + '</td><td class="mono was" style="white-space:nowrap">' +
+          (r.default != null ? esc(shown(r.default)) : r.libraryDefault != null ? esc(r.libraryDefault) : '<span class="dim">decided in code</span>') + '</td></tr>';
+      });
+      out += '</tbody></table></details>';
+    });
+    return out;
+  }
+  function drawProblems() {
+    if (!state.problems) return waiting('Checking each setting against what the project\'s Spring jars bind.');
+    if (state.errors.problems) return failed('problems');
+    if (!state.problems.length) return '<div class="state">Every setting in the files is one something binds.</div>';
+    var out = '<div class="card"><div class="sub">These are in the files and change nothing. The application runs on the default for whatever they were meant to set.</div><table><thead><tr><th>Setting</th><th>What to do</th><th>Where</th></tr></thead><tbody>';
+    state.problems.forEach(function (p) {
+      out += '<tr><td><b>' + esc(p.title) + '</b><div class="desc">' + esc(p.detail) + '</div></td><td>' + esc(p.fix) + '</td><td class="mono"><a href="' + esc(p.link || '#') +
+        '" target="_blank" rel="noopener">' + esc(String(p.file).split('/').pop()) + ':' + esc(p.line) + '</a></td></tr>';
+    });
+    return out + '</tbody></table></div>';
+  }
+  function drawNeeded() {
+    if (!state.needed) return waiting('Reading the @Value placeholders in the source.');
+    if (state.errors.needed) return failed('needed');
+    if (!state.needed.length) return '<div class="state">No @Value("${...}") in the main source asks for a setting.</div>';
+    var out = '<div class="card"><div class="sub">Settings the code asks for by name. One supplied by nothing in the repository has to come from the environment at run time; if it does not, the application fails to start.</div><table><thead><tr><th>Setting</th><th>Supplied</th><th>Asked for in</th></tr></thead><tbody>';
+    state.needed.forEach(function (n) {
+      var pill = n.supplied === 'by nothing in the repository' ? 'p-red' : n.supplied === 'in a file' ? 'p-green' : 'p-dim';
+      var how = n.supplied === 'in a file' ? ' <span class="dim mono">' + esc(shown(n.files)) + '</span>' : n.fallback != null ? ' <span class="dim mono">' + esc(n.fallback) + '</span>' : '';
+      out += '<tr><td class="mono">' + esc(n.key) + '</td><td><span class="pill ' + pill + '">' + esc(n.supplied) + '</span>' + how + '</td><td class="mono"><a href="' + esc(n.link || '#') +
+        '" target="_blank" rel="noopener">' + esc(String(n.class).split('.').pop()) + ':' + esc(n.line) + '</a></td></tr>';
+    });
+    return out + '</tbody></table></div>';
+  }
+
+  /* Who set it: read only when a row is opened, once per row. */
+  var asked = {};
+  function who(i) {
+    var s = state.set[i], slot = $('who-' + i); if (!slot) return;
+    var id = state.project + '!' + s.path + ':' + s.line;
+    function paint(html) { var el = $('who-' + i); if (el) el.innerHTML = '<div class="who">' + html + '</div>'; }
+    if (asked[id]) { paint(asked[id]); return; }
+    if (!/^https?:\/\//.test(state.project)) { paint('Which change set this is known for a repository, not for a folder.'); return; }
+    paint('Reading the history of this line.');
+    embabel.views.invoke('GitBlameLine', { file: state.project + '!' + s.path, line: s.line }).then(rowsOf).then(function (rows) {
+      var b = rows[0];
+      asked[id] = b ? 'Set by <b>' + esc(b.author) + '</b>' + (b.authorKind && b.authorKind !== 'human' ? ' <span class="pill p-amber">with a coding agent</span>' : '') +
+          ' on ' + esc(String(b.at).slice(0, 10)) + ': <a href="' + esc(b.link || '#') + '" target="_blank" rel="noopener">' + esc(b.title) + '</a>' +
+          (b.boundary ? ' <span class="dim">(this commit or an older one: the history read ends here)</span>' : '')
+        : 'The history has no change for this line.';
+      paint(asked[id]);
+    }).catch(function (e) { paint('<span class="err">The history could not be read: ' + message(e) + '</span> <span class="dim">This needs the git realm and a repository at a commit (…@sha).</span>'); });
+  }
+
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-tab]'); if (t) { state.tab = t.getAttribute('data-tab'); draw(); return; }
+    if (e.target.id === 'loadAll') { loadAll(); return; }
+    if (e.target.closest('a')) return;
+    var r = e.target.closest('[data-set]'); if (r) who(+r.getAttribute('data-set'));
+  });
+  $('form').addEventListener('submit', function (e) { e.preventDefault(); var k = $('key').value.trim(); if (k) { history.replaceState(null, '', '?project=' + encodeURIComponent(k)); load(k); } });
+  $('chips').innerHTML = SAMPLES.map(function (s, i) { return '<button type="button" data-sample="' + i + '">' + esc(s.name) + '</button>'; }).join('');
+  $('chips').addEventListener('click', function (e) { var b = e.target.closest('[data-sample]'); if (b) { var k = SAMPLES[+b.getAttribute('data-sample')].key; $('key').value = k; history.replaceState(null, '', '?project=' + encodeURIComponent(k)); load(k); } });
+  var given = new URLSearchParams(location.search).get('project');
+  if (given) { $('key').value = given; load(given); }
+})();
+</script>
+</body>
+</html>

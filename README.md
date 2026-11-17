@@ -23,6 +23,11 @@ Open the **Spring Stack Report** app (`apps/stack.html`), ask in chat, or have y
 the views over MCP (`StackCard`, `ModernizationFindings`, `ConfigurationProblems`, `UpgradeConfiguration`,
 `VulnerableDependencies`, `VersionOverrides`, `Beans`, `Profiles`, `WhyNotApplied`, …).
 
+The **Settings** page (`apps/settings.html`) shows what the application sets beside what it runs on by
+default: every setting in its files with the default it replaces and the change that set it, the
+defaults nobody chose, settings that have no effect, and `@Value` settings nothing supplies. Its
+browser test is `node tests/settings.stub.mjs`.
+
 Requires `realm-java-project`, and an Embabel appliance with the `maven`, `source`, `jar` and `actuator`
 producer kinds. Support dates from spring.io and endoflife.date; advisories from deps.dev and OSV.
 
