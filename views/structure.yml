@@ -1,0 +1,67 @@
+# The places Spring gives a method a job it does not show in its body: an endpoint, a transaction,
+# a schedule, a listener. Each is read from the annotations in the project's main source, so each
+# row is a method with its file and line, which is what joins it to history, coverage, failures
+# and, where a metrics source is connected, load.
+
+- name: Endpoints
+  description: >-
+    SELECT THIS for "what endpoints does this service expose", "which method handles GET
+    /owners", "where is this route implemented". Every HTTP endpoint the project's main source
+    declares with Spring's mapping annotations: the HTTP method, the route (the class's
+    @RequestMapping prefix and the method's own path), the handler class and method, and its file
+    and line. What the source declares; a running application's mappings can add framework
+    endpoints (the actuator's) that are not here.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name IN ['GetMapping', 'PostMapping', 'PutMapping', 'DeleteMapping', 'PatchMapping', 'RequestMapping']
+      AND a.targetKind = 'method' AND NOT a.path CONTAINS 'src/test/'
+    WITH p, a
+    OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(c:JavaProjectAnnotation)
+    WHERE c.name = 'RequestMapping' AND c.targetKind = 'type' AND c.targetName = a.owner
+    WITH a, coalesce(head(collect(c.value)), '') AS prefix
+    RETURN CASE a.name WHEN 'GetMapping' THEN 'GET' WHEN 'PostMapping' THEN 'POST' WHEN 'PutMapping' THEN 'PUT'
+                       WHEN 'DeleteMapping' THEN 'DELETE' WHEN 'PatchMapping' THEN 'PATCH'
+                       ELSE coalesce(head([x IN a.attributes WHERE x STARTS WITH 'method=' | replace(substring(x, 7), 'RequestMethod.', '')]), 'ANY') END AS method,
+           prefix + coalesce(a.value, '') AS route, last(split(a.owner, '.')) AS class, a.targetName AS handler,
+           a.owner AS owner, a.path AS path, a.line AS line, a.link AS link
+    ORDER BY route, method LIMIT 2000
+
+- name: TransactionalMethods
+  description: >-
+    SELECT THIS for "which methods run in a transaction", "where are our transaction
+    boundaries", "is this method transactional". Every place the project's main source declares
+    @Transactional: on a method, or on a class (then every public method of it is transactional),
+    with what the annotation asks for (readOnly, propagation, timeout, rollbackFor) and its file
+    and line. `on` is method or type. What the source declares: whether the transaction actually
+    applies (a private method, or a call from inside the same class, gets none) is a separate check.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name = 'Transactional' AND NOT a.path CONTAINS 'src/test/'
+    RETURN a.targetKind AS on, last(split(coalesce(a.owner, a.targetName), '.')) AS class,
+           CASE WHEN a.targetKind = 'type' THEN null ELSE a.targetName END AS method,
+           coalesce(head([x IN a.attributes WHERE x STARTS WITH 'readOnly=' | substring(x, 9)]), 'false') = 'true' AS readOnly,
+           head([x IN a.attributes WHERE x STARTS WITH 'propagation=' | replace(substring(x, 12), 'Propagation.', '')]) AS propagation,
+           head([x IN a.attributes WHERE x STARTS WITH 'timeout=' | substring(x, 8)]) AS timeout,
+           a.qualifiedName AS annotation, a.path AS path, a.line AS line, a.link AS link
+    ORDER BY path, line LIMIT 2000
+
+- name: BackgroundWork
+  description: >-
+    SELECT THIS for "what runs on a schedule", "which methods listen to a queue or topic", "what
+    runs outside a request". The methods the project's main source gives a job outside a web
+    request: @Scheduled (with its cron or rate), message listeners (@KafkaListener,
+    @RabbitListener, @JmsListener, @SqsListener), @EventListener and @Async, each with its class,
+    method, file and line.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async']
+      AND NOT a.path CONTAINS 'src/test/'
+    RETURN a.name AS kind, last(split(coalesce(a.owner, a.targetName), '.')) AS class, a.targetName AS method,
+           a.attributes AS declared, a.path AS path, a.line AS line, a.link AS link
+    ORDER BY kind, path, line LIMIT 2000

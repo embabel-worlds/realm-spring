@@ -1,0 +1,120 @@
+# What the application runs on: the settings somebody chose, and the ones nobody did. Spring Boot
+# binds about a thousand settings for an ordinary web application and a project sets a few dozen;
+# the rest are defaults in force that appear in no file. Both sides are read where they live: the
+# project's own application files, and the configuration metadata inside the Spring Boot jars the
+# project resolves, so the defaults are those of the version it actually runs.
+
+- name: SettingsExplicit
+  description: >-
+    SELECT THIS for "what does this application set", "which settings did we choose", "what
+    configuration differs from Spring Boot's defaults". Every setting in the project's
+    application*.properties and YAML files with its value, file and line, beside what Spring Boot
+    would have used: the documented default, what the setting does, and `sameAsDefault` when the
+    project sets the value Spring Boot already uses. `entryOf` names the map setting a key is an entry of
+    (logging.level.*, spring.jpa.properties.*): such an entry has no default because nothing is there
+    until it is added. `documented` false with no `entryOf` is one of the project's own keys or a
+    typo (ConfigurationProblems says which are typos).
+    Downloads the project's Spring Boot jars the first time.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
+    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
+       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
+    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
+    WITH p, collect(bp) AS props
+    MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
+      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
+    WITH s, props, toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
+    WITH s, base, [x IN props WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = base][0] AS m,
+         [x IN props WHERE (x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List')
+            AND base STARTS WITH toLower(replace(replace(x.name, '-', ''), '_', '')) + '.'][0] AS under
+    RETURN s.name AS key, s.value AS value, s.fileName AS file, s.path AS path, s.line AS line, s.link AS link,
+           m IS NOT NULL AS documented, under.name AS entryOf, m.defaultValue AS default, m.description AS description, m.type AS type,
+           (m.defaultValue IS NOT NULL AND toString(m.defaultValue) = toString(s.value)) AS sameAsDefault,
+           coalesce(m.deprecated, false) AS deprecated
+    ORDER BY path, line LIMIT 1000
+
+- name: SettingsByDefault
+  description: >-
+    SELECT THIS for "what defaults is this application running on", "which settings has nobody
+    chosen", "what is the connection pool size if we never set it". The settings Spring Boot
+    binds for this project that NO application file sets, each with the default in force and what
+    it does. `notable` marks the few whose default most often surprises in production (open
+    session in view, pool and thread limits, upload size, shutdown, what the actuator exposes),
+    with `why` saying what the default means; `libraryDefault` is the library's own default where
+    Spring Boot documents none. `default` empty and `libraryDefault` empty means the value is
+    decided in code, by the library or by what is on the classpath. Narrow with `prefix`
+    ('server.', 'spring.datasource'), or `notableOnly`. This is what the files and jars say: an
+    environment variable or command-line argument at run time can still set any of them.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    prefix: { type: string, default: "", description: "Only settings whose key starts with this; empty for all." }
+    notableOnly: { type: boolean, default: false, description: "Only the defaults that most often matter in production." }
+    limit: { type: int, default: 2000, description: "How many to return; a web application has about a thousand." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
+    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
+       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
+    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
+    WHERE NOT coalesce(bp.deprecated, false)
+    WITH p, collect(bp) AS props
+    OPTIONAL MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources'
+    WITH props, collect(DISTINCT toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', ''))) AS set,
+         [{k: 'spring.jpa.open-in-view', why: 'A database session stays open while the web view renders, so templates can load data lazily and queries run outside your transactions.'},
+          {k: 'spring.datasource.hikari.maximum-pool-size', library: '10', why: 'At most this many database connections. When all are in use, the next request waits.'},
+          {k: 'spring.datasource.hikari.connection-timeout', library: '30000', why: 'Milliseconds a request waits for a database connection before it fails.'},
+          {k: 'spring.transaction.default-timeout', why: 'No timeout: a transaction runs as long as it takes unless one is set on it.'},
+          {k: 'server.tomcat.threads.max', why: 'The most requests served at the same time; further requests queue.'},
+          {k: 'server.port', why: 'The port the application listens on.'},
+          {k: 'server.shutdown', why: 'Whether requests in flight are allowed to finish when the application stops.'},
+          {k: 'spring.lifecycle.timeout-per-shutdown-phase', why: 'How long a graceful shutdown waits for requests in flight.'},
+          {k: 'server.servlet.session.timeout', why: 'How long an idle session lives.'},
+          {k: 'spring.servlet.multipart.max-file-size', why: 'An upload larger than this is rejected.'},
+          {k: 'server.compression.enabled', why: 'Whether responses are compressed.'},
+          {k: 'server.error.include-stacktrace', why: 'Whether an error response carries the stack trace.'},
+          {k: 'spring.threads.virtual.enabled', why: 'Whether requests and tasks run on virtual threads.'},
+          {k: 'spring.main.lazy-initialization', why: 'Whether beans are created at startup or on first use; lazy hides a wiring error until the first request that needs the bean.'},
+          {k: 'spring.task.execution.pool.core-size', why: 'Threads kept for @Async and other background tasks.'},
+          {k: 'spring.sql.init.mode', why: 'Whether schema and data scripts run at startup: by default only against an embedded database.'},
+          {k: 'spring.mvc.problemdetails.enabled', why: 'Whether errors are returned in the standard problem-details format.'},
+          {k: 'management.endpoints.web.exposure.include', why: 'Which actuator endpoints are reachable over HTTP.'},
+          {k: 'management.endpoint.health.show-details', why: 'Whether the health endpoint says which component is unhealthy, and to whom.'}] AS notables
+    UNWIND props AS bp
+    WITH bp, set, notables
+    WHERE NOT toLower(replace(replace(bp.name, '-', ''), '_', '')) IN set AND ($prefix = '' OR bp.name STARTS WITH $prefix)
+    WITH bp.name AS key, head(collect(bp)) AS bp, notables
+    WITH key, bp, head([n IN notables WHERE n.k = key]) AS n
+    WHERE NOT $notableOnly OR n IS NOT NULL
+    RETURN key, bp.defaultValue AS default, n.library AS libraryDefault, bp.description AS description, bp.type AS type,
+           split(key, '.')[0] + CASE WHEN size(split(key, '.')) > 2 THEN '.' + split(key, '.')[1] ELSE '' END AS area,
+           n IS NOT NULL AS notable, n.why AS why
+    ORDER BY notable DESC, key
+    LIMIT $limit
+
+- name: SettingsNeeded
+  description: >-
+    SELECT THIS for "which settings does the code require", "will this start without
+    configuration", "which @Value has no value". Every setting the code asks for with
+    @Value("${...}"), with where it is asked for and where it is supplied (test sources are left out). `supplied` is 'in a
+    file' (with the files), 'by a fallback in the code' (the `${key:fallback}` form), or 'by
+    nothing in the repository': that one must come from the environment at run time, and the
+    application fails to start with "Could not resolve placeholder" when it does not.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
+    WHERE a.name = 'Value' AND a.value CONTAINS '${' AND NOT a.path CONTAINS 'src/test/'
+    WITH p, a, split(split(a.value, '${')[1], '}')[0] AS inner
+    WITH p, a, split(inner, ':')[0] AS key, inner CONTAINS ':' AS hasFallback,
+         CASE WHEN inner CONTAINS ':' THEN substring(inner, size(split(inner, ':')[0]) + 1) END AS fallback
+    OPTIONAL MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.name = key
+    WITH a, key, hasFallback, fallback, collect(DISTINCT s.fileName) AS files
+    RETURN key, CASE WHEN size(files) > 0 THEN 'in a file' WHEN hasFallback THEN 'by a fallback in the code' ELSE 'by nothing in the repository' END AS supplied,
+           files, fallback, a.owner AS class, a.targetKind AS on, a.path AS path, a.line AS line, a.link AS link
+    ORDER BY size(files), hasFallback, key
+    LIMIT 500
