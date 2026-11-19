@@ -76,6 +76,8 @@ const FIX = {
               { method: 'POST', route: '/cart/items', class: 'CartController', handler: 'add', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartController.kt', line: 31, link: null }],
   BackgroundWork: [{ kind: 'KafkaListener', class: 'OrderEvents', method: 'onOrder', detail: 'orders.placed', language: 'kotlin', path: 'shop-web/src/main/kotlin/OrderEvents.kt', line: 14, link: null }],
   TransactionalMethods: [], OutboundHttp: [], DataModel: [], AccessRules: [],
+  GradleStackCard: [],
+  CodeChecks: [{ code: 'JAVA_FINAL_AUTOWIRED_FIELD', severity: 'warning', found: '@Autowired on a final field, which cannot be injected', class: 'CartService', member: 'clock', fix: 'Remove @Autowired from the field and take the dependency as a constructor parameter that assigns it.', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 9, link: null }],
   BeanWiring: [{ bean: 'CartController', type: 'CartService', asWritten: 'CartService', injectedBy: 'constructor', declaredHere: true, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
                { bean: 'CartController', type: 'ObjectMapper', asWritten: 'ObjectMapper', injectedBy: 'constructor', declaredHere: false, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
                { bean: 'CartService', type: 'Clock', asWritten: 'Clock', injectedBy: 'constructor', declaredHere: false, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartService.kt', line: 8, link: null }],
@@ -253,6 +255,9 @@ try {
   await page.click('#panel [data-app="tx"]');
   await page.waitForFunction(() => document.querySelector('#panel .empty')?.textContent.includes('None.'));
   ok((await text(page, '#panel')).includes('0 found in main source'), 'a section with nothing says none were found');
+  await page.click('#panel [data-app="checks"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('final field'));
+  ok((await text(page, '#panel')).includes('take the dependency as a constructor parameter') && (await text(page, '#panel')).includes('CartService.clock'), 'a code check shows what was found, where, and the change to make');
   await page.click('#panel [data-app="wiring"]');
   await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Most asked for'));
   ok((await text(page, '#panel')).includes('3 found in main source'), 'wiring lists three injection points');

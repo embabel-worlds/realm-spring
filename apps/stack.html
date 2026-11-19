@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","GradleStackCard","CodeChecks","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -694,8 +694,17 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       mark('code', 'run');
       return first();
     }).then(function (rows) {
+      /* No Spring Boot in a Maven build: it may be a Gradle project, whose Kotlin build file is read as code. */
+      if (rows[0] && rows[0].bootVersion) return rows;
+      return view('GradleStackCard', { project: key }).then(function (g) {
+        if (g[0] && g[0].bootVersion) { g[0].gradle = true; return g; }
+        return rows;
+      }).catch(function () { return rows; });
+    }).then(function (rows) {
       state.stack = rows[0] || null;
-      mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion ? 'read' : 'no Spring Boot in the build — is it a Maven project that uses Spring Boot?');
+      mark('code', state.stack && state.stack.bootVersion ? 'done' : 'fail', state.stack && state.stack.bootVersion
+        ? (state.stack.gradle ? 'read from build.gradle.kts — dependency and vulnerability checks need a Maven build for now' : 'read')
+        : 'no Spring Boot found in a pom.xml or a build.gradle.kts — a Groovy build.gradle is not read yet');
       view('ProjectOverview', { project: key }).then(function (rows) {
         state.overview = rows[0] || null;
         if (state.overview) mark('code', 'done', state.overview.moduleCount + ' module(s), ' + state.overview.types + ' types, ' + state.overview.settings + ' settings, ' + state.overview.dependencies + ' dependencies');
@@ -1282,6 +1291,8 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       [['kind', 'Kind'], ['name', 'Name', mono('name')], ['entity', 'Entity'], ['declaredAs', 'Declared as'], ['storedAs', 'Stored as'], ['path', 'Where', where]]],
     ['access', 'Access rules', 'AccessRules', 'Reading method security annotations and security configuration', 'Access rules written on code. Rules written inside a SecurityFilterChain are not listed; the classes that hold them are, as configuration.',
       [['kind', 'Kind'], ['rule', 'Rule'], ['expression', 'Expression or roles', mono('expression')], ['class', 'On', member], ['path', 'Where', where]]],
+    ['checks', 'Code checks', 'CodeChecks', 'Checking Spring usage in the project’s Java, Kotlin and Scala source', 'Spring idioms that are wrong, removed or needlessly old, each with the change to make.',
+      [['severity', 'Severity', function (r) { return '<span class="kind">' + esc(r.severity) + '</span>'; }], ['found', 'Found', function (r) { return esc(r.found) + '<div class="sub" style="margin-top:3px">' + esc(r.fix) + '</div>'; }], ['class', 'In', member], ['path', 'Where', where]]],
     ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type. Matched by type name; which implementation is injected is not resolved.',
       [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
        ['declaredHere', 'Declared in this project', function (r) { return String(r.declaredHere) === 'true' ? 'yes' : 'no'; }], ['file', 'Where', at]]]
