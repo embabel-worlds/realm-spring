@@ -366,6 +366,116 @@ RETURN CASE WHEN stereotype = &#x27;Bean&#x27; THEN coalesce(d.owner, &#x27;&#x2
        CASE WHEN (&#x27;/&#x27; + d.path) CONTAINS &#x27;/src/&#x27; THEN substring(split(&#x27;/&#x27; + d.path, &#x27;/src/&#x27;)[0], 1) ELSE &#x27;&#x27; END AS module,
        d.path AS file, d.line AS line, d.url AS link
 ORDER BY declaredBy, bean LIMIT 5000</pre></details>
+  <details><summary><b>BeanWiring</b> — SELECT THIS for &quot;what does this bean depend on&quot;, &quot;what uses OwnerRepository&quot;, &quot;which beans inject X&quot;. Every injection point the project&#x27;s source declares, in Java, Kotlin or Scala: each constructor parameter of a bean class (a Kotlin primary constructor included), each field annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider of a type is that type), how it is injected, and whether a bean class of that name is declared in this project, counting Spring Data repository interfaces (false means another interface, a @Bean method&#x27;s product, or a bean from a library). Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations as written and matched by simple name: which implementation is injected is not resolved. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;]
+WITH collect(d) AS all
+WITH all, [x IN all WHERE (x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])) OR (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;) | x.name] AS beanNames
+UNWIND all AS d
+WITH d, beanNames, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName
+WHERE (d.kind = &#x27;constructor&#x27; AND ownerName IN beanNames)
+   OR (d.kind = &#x27;class&#x27; AND d.language &lt;&gt; &#x27;java&#x27; AND d.signature CONTAINS &#x27;(&#x27; AND d.name IN beanNames)
+   OR (d.kind = &#x27;field&#x27; AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Inject&#x27;, &#x27;Resource&#x27;]))
+   OR (d.kind = &#x27;method&#x27; AND &#x27;Bean&#x27; IN d.annotations AND d.signature CONTAINS &#x27;(&#x27;)
+WITH d, beanNames, ownerName, split(d.signature, &#x27;) :&#x27;)[0] AS head
+WITH d, beanNames, ownerName,
+     CASE WHEN d.kind = &#x27;field&#x27; THEN d.signature ELSE substring(head, size(split(head, &#x27;(&#x27;)[0]) + 1) END AS asked
+UNWIND split(asked, &#x27;,&#x27;) AS piece
+WITH d, beanNames, ownerName, trim(replace(piece, &#x27;)&#x27;, &#x27;&#x27;)) AS piece
+WITH d, beanNames, ownerName, piece, split(piece, &#x27; &#x27;) AS tokens
+WITH d, beanNames, ownerName,
+     CASE WHEN d.language &lt;&gt; &#x27;java&#x27; AND piece CONTAINS &#x27;:&#x27; THEN trim(split(last(split(piece, &#x27;:&#x27;)), &#x27;=&#x27;)[0])
+          WHEN d.language = &#x27;java&#x27; AND size(tokens) &gt;= 2 THEN tokens[size(tokens) - 2]
+          ELSE &#x27;&#x27; END AS written
+WITH d, beanNames, ownerName, replace(written, &#x27;?&#x27;, &#x27;&#x27;) AS written
+WITH d, beanNames, ownerName, written,
+     CASE WHEN written CONTAINS &#x27;&lt;&#x27; AND split(written, &#x27;&lt;&#x27;)[0] IN [&#x27;List&#x27;, &#x27;Set&#x27;, &#x27;Collection&#x27;, &#x27;Optional&#x27;, &#x27;ObjectProvider&#x27;, &#x27;Provider&#x27;, &#x27;Lazy&#x27;]
+          THEN split(split(written, &#x27;&lt;&#x27;)[1], &#x27;&gt;&#x27;)[0] ELSE split(written, &#x27;&lt;&#x27;)[0] END AS type
+WHERE type &lt;&gt; &#x27;&#x27; AND NOT type CONTAINS &#x27;&quot;&#x27; AND NOT type CONTAINS &#x27;(&#x27; AND NOT type CONTAINS &#x27;&gt;&#x27; AND NOT type CONTAINS &#x27; &#x27; AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) &lt;&gt; left(type, 1)
+RETURN CASE WHEN d.kind = &#x27;method&#x27; THEN coalesce(d.owner, &#x27;&#x27;) + &#x27;#&#x27; + d.name WHEN d.kind = &#x27;class&#x27; THEN d.name ELSE ownerName END AS bean,
+       type, written AS asWritten,
+       CASE d.kind WHEN &#x27;field&#x27; THEN &#x27;field&#x27; WHEN &#x27;method&#x27; THEN &#x27;@Bean method parameter&#x27; ELSE &#x27;constructor&#x27; END AS injectedBy,
+       type IN beanNames AS declaredHere,
+       d.language AS language, d.path AS file, d.line AS line, d.url AS link
+ORDER BY bean, type LIMIT 20000</pre></details>
+  <details><summary><b>Endpoints</b> — SELECT THIS for &quot;what endpoints does this service expose&quot;, &quot;which method handles GET /owners&quot;, &quot;where is this route implemented&quot;. Every HTTP endpoint the project&#x27;s main source declares with Spring&#x27;s mapping annotations, in Java, Kotlin or Scala: the HTTP method, the route (the class&#x27;s @RequestMapping prefix and the method&#x27;s own path), the handler class and method, and its file and line. What the source declares; a running application&#x27;s mappings can add framework endpoints (the actuator&#x27;s) that are not here. A path given as a constant rather than a string is shown as written.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;GetMapping&#x27;, &#x27;PostMapping&#x27;, &#x27;PutMapping&#x27;, &#x27;DeleteMapping&#x27;, &#x27;PatchMapping&#x27;, &#x27;RequestMapping&#x27;])
+WITH [x IN collect(d) WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;]
+      | {path: x.path, name: x.name, text: [t IN x.annotationText WHERE t STARTS WITH &#x27;@RequestMapping&#x27;][0]}] AS classes,
+     [x IN collect(d) WHERE NOT x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;]] AS handlers
+UNWIND handlers AS d
+WITH d, [t IN d.annotationText WHERE ANY(m IN [&#x27;@GetMapping&#x27;, &#x27;@PostMapping&#x27;, &#x27;@PutMapping&#x27;, &#x27;@DeleteMapping&#x27;, &#x27;@PatchMapping&#x27;, &#x27;@RequestMapping&#x27;] WHERE t STARTS WITH m)][0] AS written,
+     [x IN classes WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;))][0].text AS classWritten
+WITH d, written, CASE WHEN classWritten CONTAINS &#x27;&quot;&#x27; THEN split(classWritten, &#x27;&quot;&#x27;)[1] ELSE &#x27;&#x27; END AS prefix
+RETURN CASE WHEN written STARTS WITH &#x27;@GetMapping&#x27; THEN &#x27;GET&#x27; WHEN written STARTS WITH &#x27;@PostMapping&#x27; THEN &#x27;POST&#x27;
+            WHEN written STARTS WITH &#x27;@PutMapping&#x27; THEN &#x27;PUT&#x27; WHEN written STARTS WITH &#x27;@DeleteMapping&#x27; THEN &#x27;DELETE&#x27;
+            WHEN written STARTS WITH &#x27;@PatchMapping&#x27; THEN &#x27;PATCH&#x27;
+            WHEN written CONTAINS &#x27;RequestMethod.&#x27; THEN split(split(split(split(written, &#x27;RequestMethod.&#x27;)[1], &#x27;)&#x27;)[0], &#x27;]&#x27;)[0], &#x27;,&#x27;)[0]
+            ELSE &#x27;ANY&#x27; END AS method,
+       prefix + CASE WHEN written CONTAINS &#x27;&quot;&#x27; THEN split(written, &#x27;&quot;&#x27;)[1] ELSE &#x27;&#x27; END AS route,
+       last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS class, d.name AS handler, d.owner AS owner, written AS declared,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY route, method LIMIT 5000</pre></details>
+  <details><summary><b>BackgroundWork</b> — SELECT THIS for &quot;what runs on a schedule&quot;, &quot;which methods listen to a queue or topic&quot;, &quot;what runs outside a request&quot;. The methods the project&#x27;s main source gives a job outside a web request, in Java, Kotlin or Scala: @Scheduled (with its cron or rate), message listeners (@KafkaListener, @RabbitListener, @JmsListener, @SqsListener), @EventListener and @Async, each with its class, method, file and line, and as `detail` the first value written on it: the topic or queue a listener reads, or a schedule&#x27;s cron expression.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;Scheduled&#x27;, &#x27;KafkaListener&#x27;, &#x27;RabbitListener&#x27;, &#x27;JmsListener&#x27;, &#x27;SqsListener&#x27;, &#x27;EventListener&#x27;, &#x27;TransactionalEventListener&#x27;, &#x27;Async&#x27;])
+WITH d, [a IN d.annotations WHERE a IN [&#x27;Scheduled&#x27;, &#x27;KafkaListener&#x27;, &#x27;RabbitListener&#x27;, &#x27;JmsListener&#x27;, &#x27;SqsListener&#x27;, &#x27;EventListener&#x27;, &#x27;TransactionalEventListener&#x27;, &#x27;Async&#x27;]][0] AS kind
+RETURN kind, CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN d.name ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN null ELSE d.name END AS method,
+       [t IN d.annotationText WHERE t STARTS WITH &#x27;@&#x27; + kind][0] AS declared,
+       head([t IN d.annotationText WHERE t STARTS WITH &#x27;@&#x27; + kind AND t CONTAINS &#x27;&quot;&#x27; | split(t, &#x27;&quot;&#x27;)[1]]) AS detail,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY kind, path, line LIMIT 5000</pre></details>
+  <details><summary><b>TransactionalMethods</b> — SELECT THIS for &quot;which methods run in a transaction&quot;, &quot;where are our transaction boundaries&quot;, &quot;is this method transactional&quot;. Every place the project&#x27;s main source declares @Transactional, in Java, Kotlin or Scala: on a method, or on a class (then every public method of it is transactional), with what the annotation asks for (readOnly, propagation, timeout) and its file and line. `on` is method or type. What the source declares: whether the transaction actually applies (a private method, or a call from inside the same class, gets none) is a separate check.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND &#x27;Transactional&#x27; IN d.annotations
+WITH d, d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AS onType,
+     replace([t IN d.annotationText WHERE t STARTS WITH &#x27;@Transactional&#x27;][0], &#x27; &#x27;, &#x27;&#x27;) AS written
+RETURN CASE WHEN onType THEN &#x27;type&#x27; ELSE &#x27;method&#x27; END AS on,
+       CASE WHEN onType THEN d.name ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN onType THEN null ELSE d.name END AS method,
+       written CONTAINS &#x27;readOnly=true&#x27; AS readOnly,
+       CASE WHEN written CONTAINS &#x27;Propagation.&#x27; THEN split(split(split(written, &#x27;Propagation.&#x27;)[1], &#x27;)&#x27;)[0], &#x27;,&#x27;)[0] END AS propagation,
+       CASE WHEN written CONTAINS &#x27;timeout=&#x27; THEN split(split(split(written, &#x27;timeout=&#x27;)[1], &#x27;)&#x27;)[0], &#x27;,&#x27;)[0] END AS timeout,
+       [t IN d.annotationText WHERE t STARTS WITH &#x27;@Transactional&#x27;][0] AS annotation,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY path, line LIMIT 5000</pre></details>
+  <details><summary><b>OutboundHttp</b> — SELECT THIS for &quot;what does this service call&quot;, &quot;which HTTP clients does it declare&quot;, &quot;what other services does it depend on&quot;. The HTTP clients the project&#x27;s main source DECLARES, in Java, Kotlin or Scala: Spring HTTP interface clients (@HttpExchange on the type, @GetExchange, @PostExchange and the rest on methods) and OpenFeign clients (@FeignClient, with the name or URL it is given). One row per declaration: the kind, the interface, the method when it is one, the path, name or URL as written, file and line. Calls made directly through RestClient, WebClient or RestTemplate are not declarations and are not here.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;HttpExchange&#x27;, &#x27;GetExchange&#x27;, &#x27;PostExchange&#x27;, &#x27;PutExchange&#x27;, &#x27;DeleteExchange&#x27;, &#x27;PatchExchange&#x27;, &#x27;FeignClient&#x27;])
+WITH d, [t IN d.annotationText WHERE t STARTS WITH &#x27;@HttpExchange&#x27; OR t STARTS WITH &#x27;@GetExchange&#x27; OR t STARTS WITH &#x27;@PostExchange&#x27; OR t STARTS WITH &#x27;@PutExchange&#x27;
+                                  OR t STARTS WITH &#x27;@DeleteExchange&#x27; OR t STARTS WITH &#x27;@PatchExchange&#x27; OR t STARTS WITH &#x27;@FeignClient&#x27;][0] AS written
+RETURN CASE WHEN written STARTS WITH &#x27;@FeignClient&#x27; THEN &#x27;OpenFeign client&#x27; WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;] THEN &#x27;HTTP interface client&#x27; ELSE &#x27;HTTP interface method&#x27; END AS kind,
+       CASE WHEN written STARTS WITH &#x27;@GetExchange&#x27; THEN &#x27;GET&#x27; WHEN written STARTS WITH &#x27;@PostExchange&#x27; THEN &#x27;POST&#x27; WHEN written STARTS WITH &#x27;@PutExchange&#x27; THEN &#x27;PUT&#x27;
+            WHEN written STARTS WITH &#x27;@DeleteExchange&#x27; THEN &#x27;DELETE&#x27; WHEN written STARTS WITH &#x27;@PatchExchange&#x27; THEN &#x27;PATCH&#x27; ELSE &#x27;&#x27; END AS method,
+       CASE WHEN written CONTAINS &#x27;&quot;&#x27; THEN split(written, &#x27;&quot;&#x27;)[1] ELSE &#x27;&#x27; END AS target,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;] THEN d.name ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;] THEN null ELSE d.name END AS member,
+       written AS declared, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY class, line LIMIT 5000</pre></details>
+  <details><summary><b>DataModel</b> — SELECT THIS for &quot;what entities does this application persist&quot;, &quot;which repositories exist and for which entity&quot;, &quot;what tables does it map&quot;. The persistence model the project&#x27;s main source declares, in Java, Kotlin or Scala: classes annotated @Entity, @Document, @Table, @MappedSuperclass or @Embeddable (with the table or collection name when one is written), and Spring Data repository interfaces with the entity and id types they are declared for. File and line for each.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;]
+  AND (ANY(a IN d.annotations WHERE a IN [&#x27;Entity&#x27;, &#x27;Document&#x27;, &#x27;Table&#x27;, &#x27;MappedSuperclass&#x27;, &#x27;Embeddable&#x27;, &#x27;Node&#x27;, &#x27;RedisHash&#x27;])
+       OR (d.kind = &#x27;interface&#x27; AND d.signature CONTAINS &#x27;Repository&lt;&#x27;))
+WITH d, d.kind = &#x27;interface&#x27; AND d.signature CONTAINS &#x27;Repository&lt;&#x27; AS repository,
+     [t IN d.annotationText WHERE (t STARTS WITH &#x27;@Table&#x27; OR t STARTS WITH &#x27;@Document&#x27; OR t STARTS WITH &#x27;@Entity&#x27;) AND t CONTAINS &#x27;&quot;&#x27;][0] AS named
+RETURN CASE WHEN repository THEN &#x27;repository&#x27; ELSE &#x27;entity&#x27; END AS kind, d.name AS name,
+       CASE WHEN repository THEN trim(split(split(split(d.signature, &#x27;Repository&lt;&#x27;)[1], &#x27;&gt;&#x27;)[0], &#x27;,&#x27;)[0]) END AS entity,
+       CASE WHEN repository THEN split(split(d.signature, &#x27;Repository&lt;&#x27;)[0], &#x27; &#x27;)[size(split(split(d.signature, &#x27;Repository&lt;&#x27;)[0], &#x27; &#x27;)) - 1] + &#x27;Repository&#x27;
+            ELSE [a IN d.annotations WHERE a IN [&#x27;Entity&#x27;, &#x27;Document&#x27;, &#x27;Table&#x27;, &#x27;MappedSuperclass&#x27;, &#x27;Embeddable&#x27;, &#x27;Node&#x27;, &#x27;RedisHash&#x27;]][0] END AS declaredAs,
+       CASE WHEN named IS NOT NULL THEN split(named, &#x27;&quot;&#x27;)[1] END AS storedAs,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY kind, name LIMIT 5000</pre></details>
+  <details><summary><b>AccessRules</b> — SELECT THIS for &quot;which methods are protected and by what rule&quot;, &quot;who can call this endpoint&quot;, &quot;where is security configured&quot;. Access control the project&#x27;s main source declares on code, in Java, Kotlin or Scala: @PreAuthorize, @PostAuthorize, @Secured, @RolesAllowed, @PermitAll and @DenyAll on methods and types, with the expression or roles as written, and the classes that switch security on (@EnableWebSecurity, @EnableMethodSecurity). Rules written inside a SecurityFilterChain (requestMatchers(...).permitAll()) are calls, not declarations, and are not here; the classes that hold them are, as &#x27;configuration&#x27;.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;PreAuthorize&#x27;, &#x27;PostAuthorize&#x27;, &#x27;Secured&#x27;, &#x27;RolesAllowed&#x27;, &#x27;PermitAll&#x27;, &#x27;DenyAll&#x27;, &#x27;EnableWebSecurity&#x27;, &#x27;EnableMethodSecurity&#x27;, &#x27;EnableGlobalMethodSecurity&#x27;, &#x27;EnableWebFluxSecurity&#x27;])
+WITH d, [a IN d.annotations WHERE a IN [&#x27;PreAuthorize&#x27;, &#x27;PostAuthorize&#x27;, &#x27;Secured&#x27;, &#x27;RolesAllowed&#x27;, &#x27;PermitAll&#x27;, &#x27;DenyAll&#x27;, &#x27;EnableWebSecurity&#x27;, &#x27;EnableMethodSecurity&#x27;, &#x27;EnableGlobalMethodSecurity&#x27;, &#x27;EnableWebFluxSecurity&#x27;]][0] AS rule
+WITH d, rule, [t IN d.annotationText WHERE t STARTS WITH &#x27;@&#x27; + rule][0] AS written
+RETURN CASE WHEN rule STARTS WITH &#x27;Enable&#x27; THEN &#x27;configuration&#x27; ELSE &#x27;rule&#x27; END AS kind, &#x27;@&#x27; + rule AS rule,
+       CASE WHEN rule STARTS WITH &#x27;Enable&#x27; THEN &#x27;&#x27; WHEN written CONTAINS &#x27;(&#x27; THEN substring(written, size(split(written, &#x27;(&#x27;)[0]) + 1, size(written) - size(split(written, &#x27;(&#x27;)[0]) - 2) ELSE &#x27;&#x27; END AS expression,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;] THEN d.name ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;interface&#x27;, &#x27;object&#x27;] THEN null ELSE d.name END AS member,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY kind, class, line LIMIT 5000</pre></details>
   <details><summary><b>Profiles</b> — Every Spring profile the project uses and where: @Profile on classes and @Bean methods, application-&lt;profile&gt; files, and YAML documents activated on a profile.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {name: &#x27;Profile&#x27;})
 UNWIND a.values AS profile
 RETURN profile, &#x27;code&#x27; AS where, coalesce(a.owner + &#x27;#&#x27; + a.targetName, a.targetName) AS what, a.path AS file, a.line AS line, a.link AS link
@@ -430,15 +540,6 @@ ORDER BY property LIMIT 5000</pre></details>
 RETURN c.coordinates AS component, a.advisoryId AS advisory, [y IN x.aliases WHERE y STARTS WITH &#x27;CVE-&#x27;][0] AS cve,
        x.cvss3Score AS cvss, x.title AS title, x.url AS link
 ORDER BY cvss DESC LIMIT 1000</pre></details>
-  <h3>Summaries on the Structure tab</h3>
-  <p>The Structure tab can say what each file, package and module is for, and what the project is. These come from the
-  <b>code-summaries</b> realm, and the appliance writes them with a language model: a file's from what it declares (each
-  declaration's kind, name, signature and doc comment, never the file's whole text), a package's from its files' summaries, a module's
-  from its main source files' summaries, and the project's from its modules'. A summary is written the first time it is asked for
-  and kept by the appliance. It is written again only when what it was made from changes: one changed file rewrites that file's
-  summary and the levels above it, and nothing else. While the commit has not moved, a kept summary is served without reading the
-  code at all. The page asks for at most four at a time and shows how many are written and how long is left at the rate so far.
-  Summaries are a model's reading of signatures and doc comments; they can be wrong about behaviour the signatures do not show.</p>
   <h3>What an empty panel means</h3>
   <p>An empty finding list means the rule ran and found nothing — but only over what could be read. A project with no root pom.xml (a Gradle
   build) has no build to resolve, so the Spring Boot version, dependencies, configuration checks and upgrade path stay empty; its code findings
