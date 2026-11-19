@@ -43,7 +43,11 @@ const FIX = {
     { name: 'management.endpoint.health.group.ready.include', value: 'db', file: 'shop-web/src/main/resources/application.yml', line: 14, link: null },
     { name: 'region', value: 'eu', file: 'shop-web/src/main/resources/application.yml', line: 16, link: null },
     { name: 'shop.url', value: 'https://${region}.example', file: 'shop-web/src/main/resources/application.yml', line: 17, link: null },
-    { name: 'acme.stray', value: 'x', file: 'shop-web/src/main/resources/application.yml', line: 19, link: null }],
+    { name: 'acme.stray', value: 'x', file: 'shop-web/src/main/resources/application.yml', line: 19, link: null },
+    { name: 'server.port', value: '80a', file: 'shop-web/src/main/resources/application-dev.yml', line: 2, link: null },
+    { name: 'spring.datasource.hikari.maximum-pool-size', value: '${POOL:10}', file: 'shop-web/src/main/resources/application-dev.yml', line: 3, link: null },
+    { name: 'expect.kind', value: 'x', file: 'shop-web/src/main/resources/cases/one.yml', line: 1, link: null },
+    { name: 'webPort', value: '8082', file: 'shop-web/src/main/resources/.h2.server.properties', line: 1, link: null }],
   SettingsReadByCode: [
     { written: '@ConfigurationProperties(prefix = "shop.cart")', file: 'shop-web/src/main/kotlin/CartProperties.kt', line: 4 },
     { written: '@Value("\\${shop.greeting:hi}")', file: 'shop-web/src/main/kotlin/Greeter.kt', line: 9 },
@@ -160,9 +164,11 @@ try {
   ok(inbox.includes('server.max-http-header-size no longer binds') && inbox.includes('Use server.max-http-request-header-size instead'), 'configuration: a removed property is flagged with its replacement');
   ok(inbox.includes('Spring Boot binds no property spring.jpa.open-in-veiw'), 'a misspelt spring.* key is flagged');
   ok(inbox.includes('Undocumented setting acme.stray'), 'a key nothing documents or reads is flagged');
+  ok(inbox.includes('server.port is "80a", which is not a whole number') && inbox.includes('Set it to a whole number'), 'a value the property\'s type cannot take is flagged with what it must be');
+  ok(!inbox.includes('expect.kind') && !inbox.includes('webPort'), 'a YAML file of the project\'s own data, and a dot-file, are not Spring configuration and are left alone');
   ok(!inbox.includes('shop.cart.ttl') && !inbox.includes('shop.greeting') && !inbox.includes('shop.url') && !inbox.includes('Undocumented setting region'), 'keys under a @ConfigurationProperties prefix, read by @Value (Kotlin or Java) or by another setting are not');
-  ok(!inbox.includes('maximumPoolSize') && !inbox.includes('server.port') && !inbox.includes('health.group.ready'), 'a documented key in another spelling, and a key under a documented map, are not');
-  ok(await page.locator('#tabs button[data-tab="inbox"] .count').innerText() === '5', 'the inbox holds 5 findings: two from the code rules (an import, a Kotlin declaration) and three from configuration');
+  ok(!inbox.includes('maximumPoolSize') && !inbox.includes('server.port is "8080"') && !inbox.includes('health.group.ready') && !inbox.includes('POOL'), 'a documented key in another spelling, a valid value, a value held in a placeholder, and a key under a documented map, are not');
+  ok(await page.locator('#tabs button[data-tab="inbox"] .count').innerText() === '6', 'the inbox holds 6 findings: two from the code rules (an import, a Kotlin declaration) and four from configuration');
   ok((await text(page, '#recommend')).includes('nothing to upgrade to'), 'on the newest release, no upgrade is offered');
   ok(!(await page.evaluate(() => window.__calls)).some((c) => c.startsWith('UpgradeConfiguration')), 'and no upgrade check is run against the version it is already on');
   await page.click('button[data-tab="upgrade"]');

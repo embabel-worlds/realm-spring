@@ -240,7 +240,7 @@ MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
 // A multi-module build reaches the same jar from every module: one row per property name.
 WITH bp.name AS name, head(collect(bp)) AS bp
 RETURN name, bp.type AS type, bp.deprecated AS deprecated, bp.deprecationLevel AS level,
-       bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement
+       bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement, bp.defaultValue AS defaultValue
 LIMIT 20000</pre></details>
   <details><summary><b>SettingsWritten</b> — Every setting the project&#x27;s main resources write in application*.yml and .properties files: its key, its value, its file and line. Message bundles and logging files are left out. One of the three inputs of the configuration check.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]-&gt;(s:ProjectSetting)
 WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x27;/META-INF/&#x27;
@@ -1073,6 +1073,18 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       mark('config', 'done', r[1].length + ' settings checked against ' + r[0].length + ' documented properties'); render();
     }).catch(function (e) { mark('config', 'fail', reason(e)); console.warn('configuration', e); });
   }
+  /* What a value must be, when the property's documented type says and the value as written is not one; null when it is fine or settled elsewhere. */
+  function mustBe(type, value) {
+    var v = String(value == null ? '' : value).trim();
+    if (!v || v.indexOf('${') >= 0 || v.indexOf('#{') >= 0 || v.charAt(0) === '@') return null;
+    var whole = function (x) { return /^-?\d+$/.test(x); };
+    var withUnit = function (units) { var m = v.toLowerCase().match(/^(-?\d+)([a-z]+)$/); return !!m && units.indexOf(m[2]) >= 0; };
+    if (/^(java\.lang\.Boolean|boolean)$/.test(type)) return /^(true|false|on|off|yes|no)$/i.test(v) ? null : 'true or false';
+    if (/^(java\.lang\.(Integer|Long|Short)|int|long|short)$/.test(type)) return whole(v) ? null : 'a whole number';
+    if (type === 'java.time.Duration') return whole(v) || /^[-+]?p/i.test(v) || withUnit(['ns', 'us', 'ms', 's', 'm', 'h', 'd']) ? null : 'a duration: a number with ns, us, ms, s, m, h or d (30s, 5m), or ISO-8601 (PT30S)';
+    if (type === 'org.springframework.util.unit.DataSize') return whole(v) || withUnit(['b', 'kb', 'mb', 'gb', 'tb']) ? null : 'a size: a number with B, KB, MB, GB or TB (10MB)';
+    return null;
+  }
   function configurationFindings(documented, written, readByCode) {
     var known = {}, openPrefixes = [];
     documented.forEach(function (d) {
@@ -1089,12 +1101,29 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     written.forEach(function (s) { noteKeys(s.value); });   // a key another setting reads as ${key} is in use
     var FRAMEWORK = { spring: 1, server: 1, management: 1, logging: 1, info: 1, debug: 1, trace: 1 };
     var out = [];
+    /* Which files are Spring configuration: application* and bootstrap* by name, and any other that sets a property Spring Boot documents. */
+    var fileName = function (f) { return String(f || '').split('/').pop(); }, springFiles = {};
+    written.forEach(function (s) { if (known[squash(String(s.name).split('[')[0])]) springFiles[s.file] = true; });
     written.forEach(function (s) {
+      var name = fileName(s.file);
+      if (name.charAt(0) === '.' || !(/^(application|bootstrap)/.test(name) || springFiles[s.file])) return;
       var base = squash(String(s.name).split('[')[0]);
       if (readKeys[base]) return;
       if (ownPrefixes.some(function (p) { return base === p || base.indexOf(p + '.') === 0; })) return;
       if (openPrefixes.some(function (p) { return base.indexOf(p) === 0; })) return;
       var d = known[base];
+      var expected = d ? mustBe(d.type, s.value) : null;
+      if (expected) {
+        /* A value Spring Boot cannot convert to the property's type stops the application starting. */
+        out.push({
+          id: 'config:' + s.file + ':' + s.line + ':' + s.name, severity: 'high', category: 'configuration',
+          title: s.name + ' is "' + String(s.value).slice(0, 60) + '", which is not ' + expected.split(':')[0],
+          detail: 'Spring Boot binds this property as ' + String(d.type).split('.').pop() + ' and cannot convert the value, so the application fails to start with a binding error.' + (d.deprecated ? ' The property is also deprecated.' : ''),
+          fix: 'Set it to ' + expected + '.' + (d.defaultValue != null && d.defaultValue !== '' ? ' The default is ' + d.defaultValue + '.' : ''),
+          file: s.file, line: s.line, link: s.link
+        });
+        return;
+      }
       if (d && !d.deprecated) return;
       var framework = FRAMEWORK[base.split('.')[0]], removed = d && d.level === 'error';
       out.push({

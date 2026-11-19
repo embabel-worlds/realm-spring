@@ -138,7 +138,7 @@
     // A multi-module build reaches the same jar from every module: one row per property name.
     WITH bp.name AS name, head(collect(bp)) AS bp
     RETURN name, bp.type AS type, bp.deprecated AS deprecated, bp.deprecationLevel AS level,
-           bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement
+           bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement, bp.defaultValue AS defaultValue
     LIMIT 20000
 
 - name: SettingsWritten
