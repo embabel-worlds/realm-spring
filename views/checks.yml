@@ -10,7 +10,7 @@
     or risky; hint: needlessly old style), what was found, the class and member, file and line,
     and `fix`, the change to make. Covers: classes extending the removed
     WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or
-    component; final @Autowired fields; field injection; @Autowired on a class's only constructor;
+    component; final @Autowired fields; field injection; @Autowired on a Java class's only constructor (not Kotlin or Scala, where a secondary constructor beside a primary one needs it);
     @RequestMapping with a single method where @GetMapping and the rest say it better;
     @Controller with @ResponseBody; @Repository on a Spring Data repository interface; public
     @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on
@@ -43,7 +43,7 @@
            CASE WHEN d.kind = 'field' AND ANY(a IN d.annotations WHERE a IN ['Autowired', 'Inject']) AND NOT (d.signature CONTAINS ' final ' OR d.signature CONTAINS ' val ')
                 THEN ['JAVA_CONSTRUCTOR_PARAMETER_INJECTION', 'hint', 'Field injection',
                       'Make the field final (val in Kotlin), remove @Autowired, and take it as a constructor parameter. The class can then be built in a test without a Spring context.'] END,
-           CASE WHEN d.kind = 'constructor' AND 'Autowired' IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + '#' + ownerName]) = 1
+           CASE WHEN d.kind = 'constructor' AND d.language = 'java' AND 'Autowired' IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + '#' + ownerName]) = 1
                 THEN ['JAVA_AUTOWIRED_CONSTRUCTOR', 'hint', '@Autowired on the only constructor, where it is not needed',
                       'Remove @Autowired from the constructor. Spring uses a class\'s single constructor without it.'] END,
            CASE WHEN d.kind IN ['method', 'function'] AND written CONTAINS '@RequestMapping' AND written CONTAINS 'RequestMethod.' AND NOT split(written, 'RequestMethod.')[1] CONTAINS 'RequestMethod.'
