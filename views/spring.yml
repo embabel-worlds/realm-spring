@@ -267,7 +267,8 @@
     annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per
     injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider
     of a type is that type), how it is injected, and whether a bean class of that name is declared
-    in this project (false means an interface, a @Bean method's product, or a bean from a library).
+    in this project, counting Spring Data repository interfaces (false means another interface, a
+    @Bean method's product, or a bean from a library).
     Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations
     as written and matched by simple name: which implementation is injected is not resolved. Test
     source is left out.
@@ -275,9 +276,9 @@
     project: { type: string, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
-    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'constructor', 'field', 'method']
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method']
     WITH collect(d) AS all
-    WITH all, [x IN all WHERE x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice']) | x.name] AS beanNames
+    WITH all, [x IN all WHERE (x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice'])) OR (x.kind = 'interface' AND x.signature CONTAINS 'Repository<') | x.name] AS beanNames
     UNWIND all AS d
     WITH d, beanNames, last(split(coalesce(d.owner, ''), '.')) AS ownerName
     WHERE (d.kind = 'constructor' AND ownerName IN beanNames)
@@ -298,7 +299,7 @@
     WITH d, beanNames, ownerName, written,
          CASE WHEN written CONTAINS '<' AND split(written, '<')[0] IN ['List', 'Set', 'Collection', 'Optional', 'ObjectProvider', 'Provider', 'Lazy']
               THEN split(split(written, '<')[1], '>')[0] ELSE split(written, '<')[0] END AS type
-    WHERE type <> '' AND NOT type CONTAINS '>' AND NOT type CONTAINS ' ' AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) <> left(type, 1)
+    WHERE type <> '' AND NOT type CONTAINS '"' AND NOT type CONTAINS '(' AND NOT type CONTAINS '>' AND NOT type CONTAINS ' ' AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) <> left(type, 1)
     RETURN CASE WHEN d.kind = 'method' THEN coalesce(d.owner, '') + '#' + d.name WHEN d.kind = 'class' THEN d.name ELSE ownerName END AS bean,
            type, written AS asWritten,
            CASE d.kind WHEN 'field' THEN 'field' WHEN 'method' THEN '@Bean method parameter' ELSE 'constructor' END AS injectedBy,
