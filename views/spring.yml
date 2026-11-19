@@ -274,8 +274,7 @@
     in this project, counting Spring Data repository interfaces (false means another interface, a
     @Bean method's product, or a bean from a library).
     Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations
-    as written and matched by simple name: which implementation is injected is not resolved. Test
-    source is left out.
+    as written and matched by simple name: `candidates` lists the beans declared in this project that provide the type (the class itself, classes that say they extend or implement it, directly or through one of the project's own interfaces, Spring Data and Feign interfaces, and @Bean methods returning it); `injected` is the one Spring would choose when the source settles it (the only one, the @Primary one, or the one a @Qualifier names) and `resolution` says why, or that it is ambiguous. Beans from libraries and auto-configuration are not seen, so a single candidate here can still meet a library's at run time. Test source is left out.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
@@ -283,29 +282,65 @@
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method']
     WITH collect(d) AS all
     WITH all, [x IN all WHERE (x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice'])) OR (x.kind = 'interface' AND (x.signature CONTAINS 'Repository<' OR 'FeignClient' IN x.annotations)) | x.name] AS beanNames
+    /* What could be injected: each bean class with the types it says it extends or implements, each Spring Data or Feign interface, and each @Bean method with the type it returns. */
+    WITH all, beanNames,
+         [x IN all WHERE x.kind IN ['class', 'object', 'interface'] AND x.name IN beanNames
+            | {name: x.name, primary: 'Primary' IN x.annotations OR 'FeignClient' IN x.annotations, feign: 'FeignClient' IN x.annotations, isInterface: x.kind = 'interface', how: 'class',
+               supers: ' ' + replace(replace(replace(reduce(kept = '', piece IN split(
+                   CASE WHEN x.language = 'java' THEN CASE WHEN x.signature CONTAINS ' implements ' THEN split(x.signature, ' implements ')[1] WHEN x.kind = 'interface' AND x.signature CONTAINS ' extends ' THEN split(x.signature, ' extends ')[1] ELSE '' END
+                                                      + CASE WHEN x.kind <> 'interface' AND x.signature CONTAINS ' extends ' THEN ' ' + split(split(x.signature, ' extends ')[1], ' implements ')[0] ELSE '' END
+                        WHEN x.signature CONTAINS ') : ' THEN last(split(x.signature, ') : '))
+                        WHEN x.signature CONTAINS ' : ' THEN last(split(x.signature, ' : ')) ELSE '' END,
+                   '<') | CASE WHEN kept = '' THEN piece WHEN piece CONTAINS '>' THEN kept + ' ' + last(split(piece, '>')) ELSE kept END),
+                   ',', ' '), '(', ' '), ')', ' ') + ' '}] +
+         [x IN all WHERE x.kind = 'method' AND 'Bean' IN x.annotations
+            | {name: x.name, primary: 'Primary' IN x.annotations, feign: false, isInterface: false, how: '@Bean method',
+               supers: ' ' + split(CASE WHEN x.language = 'java' THEN split(trim(split(x.signature, '(')[0]), ' ')[size(split(trim(split(x.signature, '(')[0]), ' ')) - 2]
+                                        WHEN x.signature CONTAINS '): ' THEN split(trim(last(split(x.signature, '): '))), ' ')[0] ELSE '' END, '<')[0] + ' '}] AS candidates,
+         /* Interfaces and abstract types of the project that extend another: a class implementing one of these also provides what it extends, one step up. */
+         [x IN all WHERE x.kind IN ['interface', 'class'] AND (x.signature CONTAINS ' extends ' OR x.signature CONTAINS ' : ')
+            | [x.name, ' ' + replace(replace(replace(replace(CASE WHEN x.signature CONTAINS ' extends ' THEN split(x.signature, ' extends ')[1] ELSE last(split(x.signature, ' : ')) END, ',', ' '), '(', ' '), '<', ' '), '>', ' ') + ' ']] AS parents
     UNWIND all AS d
-    WITH d, beanNames, last(split(coalesce(d.owner, ''), '.')) AS ownerName
+    WITH d, beanNames, candidates, parents, last(split(coalesce(d.owner, ''), '.')) AS ownerName
     WHERE (d.kind = 'constructor' AND ownerName IN beanNames)
        OR (d.kind = 'class' AND d.language <> 'java' AND d.signature CONTAINS '(' AND d.name IN beanNames)
        OR (d.kind = 'field' AND ANY(a IN d.annotations WHERE a IN ['Autowired', 'Inject', 'Resource']))
        OR (d.kind = 'method' AND 'Bean' IN d.annotations AND d.signature CONTAINS '(')
-    WITH d, beanNames, ownerName, split(d.signature, ') :')[0] AS head
-    WITH d, beanNames, ownerName,
+    WITH d, beanNames, candidates, parents, ownerName, CASE WHEN d.signature CONTAINS '): ' THEN split(d.signature, '): ')[0] ELSE split(d.signature, ') :')[0] END AS head
+    WITH d, beanNames, candidates, parents, ownerName,
          CASE WHEN d.kind = 'field' THEN d.signature ELSE substring(head, size(split(head, '(')[0]) + 1) END AS asked
     UNWIND split(asked, ',') AS piece
-    WITH d, beanNames, ownerName, trim(replace(piece, ')', '')) AS piece
-    WITH d, beanNames, ownerName, piece, split(piece, ' ') AS tokens
-    WITH d, beanNames, ownerName,
+    WITH d, beanNames, candidates, parents, ownerName, trim(replace(piece, ')', '')) AS piece
+    WITH d, beanNames, candidates, parents, ownerName, piece, split(piece, ' ') AS tokens
+    WITH d, beanNames, candidates, parents, ownerName,
+         CASE WHEN piece CONTAINS '@Qualifier("' THEN split(split(piece, '@Qualifier("')[1], '"')[0] WHEN d.kind = 'field' AND ANY(t IN d.annotationText WHERE t STARTS WITH '@Qualifier("') THEN split([t IN d.annotationText WHERE t STARTS WITH '@Qualifier("'][0], '"')[1] END AS qualifier,
          CASE WHEN d.language <> 'java' AND piece CONTAINS ':' THEN trim(split(last(split(piece, ':')), '=')[0])
               WHEN d.language = 'java' AND size(tokens) >= 2 THEN tokens[size(tokens) - 2]
               ELSE '' END AS written
-    WITH d, beanNames, ownerName, replace(written, '?', '') AS written
-    WITH d, beanNames, ownerName, written,
+    WITH d, beanNames, candidates, parents, ownerName, qualifier, replace(written, '?', '') AS written
+    WITH d, candidates, parents, beanNames, ownerName, qualifier, written,
+         written CONTAINS '<' AND split(written, '<')[0] IN ['List', 'Set', 'Collection', 'ObjectProvider'] AS many,
          CASE WHEN written CONTAINS '<' AND split(written, '<')[0] IN ['List', 'Set', 'Collection', 'Optional', 'ObjectProvider', 'Provider', 'Lazy']
               THEN split(split(written, '<')[1], '>')[0] ELSE split(written, '<')[0] END AS type
     WHERE type <> '' AND NOT type CONTAINS '"' AND NOT type CONTAINS '(' AND NOT type CONTAINS '>' AND NOT type CONTAINS ' ' AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) <> left(type, 1)
+    WITH d, beanNames, candidates, parents, ownerName, qualifier, written, many, type, ' ' + type + ' ' AS needle
+    WITH d, beanNames, candidates, ownerName, qualifier, written, many, type, needle, [x IN parents WHERE x[1] CONTAINS needle | ' ' + x[0] + ' '] AS viaParents
+    WITH d, beanNames, ownerName, qualifier, written, many, type,
+         [c IN candidates WHERE NOT c.isInterface AND (c.name = type AND c.how = 'class' OR c.supers CONTAINS needle OR ANY(v IN viaParents WHERE c.supers CONTAINS v))] +
+         [c IN candidates WHERE c.isInterface AND c.name = type] AS found
+    WITH d, beanNames, ownerName, qualifier, written, many, type, found,
+         [c IN found WHERE c.primary] AS primaries,
+         [c IN found WHERE qualifier IS NOT NULL AND toLower(c.name) = toLower(qualifier)] AS qualified
     RETURN CASE WHEN d.kind = 'method' THEN coalesce(d.owner, '') + '#' + d.name WHEN d.kind = 'class' THEN d.name ELSE ownerName END AS bean,
            type, written AS asWritten,
+           [c IN found | c.name] AS candidates,
+           CASE WHEN many THEN null WHEN size(qualified) = 1 THEN qualified[0].name WHEN size(found) = 1 THEN found[0].name WHEN size(primaries) = 1 THEN primaries[0].name END AS injected,
+           CASE WHEN size(found) = 0 THEN 'not declared in this project: a library\'s bean, or one registered another way'
+                WHEN many THEN 'all ' + toString(size(found)) + ' declared here, as a collection'
+                WHEN size(qualified) = 1 THEN 'named by @Qualifier'
+                WHEN size(found) = 1 THEN CASE WHEN found[0].name = type THEN 'the type itself' ELSE 'the only one declared here' END
+                WHEN size(primaries) = 1 THEN CASE WHEN primaries[0].feign THEN 'the Feign client, which is primary by default, among ' ELSE 'marked @Primary among ' END + toString(size(found))
+                ELSE 'ambiguous: ' + toString(size(found)) + ' declared here and none is @Primary or named by @Qualifier; Spring falls back to the parameter\'s name, and fails if that matches none' END AS resolution,
            CASE d.kind WHEN 'field' THEN 'field' WHEN 'method' THEN '@Bean method parameter' ELSE 'constructor' END AS injectedBy,
            type IN beanNames AS declaredHere,
            d.language AS language, d.path AS file, d.line AS line, d.url AS link

@@ -654,33 +654,69 @@ RETURN CASE WHEN stereotype = &#x27;Bean&#x27; THEN coalesce(d.owner, &#x27;&#x2
        CASE WHEN (&#x27;/&#x27; + d.path) CONTAINS &#x27;/src/&#x27; THEN substring(split(&#x27;/&#x27; + d.path, &#x27;/src/&#x27;)[0], 1) ELSE &#x27;&#x27; END AS module,
        d.path AS file, d.line AS line, d.url AS link
 ORDER BY declaredBy, bean LIMIT 5000</pre></details>
-  <details><summary><b>BeanWiring</b> — SELECT THIS for &quot;what does this bean depend on&quot;, &quot;what uses OwnerRepository&quot;, &quot;which beans inject X&quot;. Every injection point the project&#x27;s source declares, in Java, Kotlin or Scala: each constructor parameter of a bean class (a Kotlin primary constructor included), each field annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider of a type is that type), how it is injected, and whether a bean class of that name is declared in this project, counting Spring Data repository interfaces (false means another interface, a @Bean method&#x27;s product, or a bean from a library). Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations as written and matched by simple name: which implementation is injected is not resolved. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+  <details><summary><b>BeanWiring</b> — SELECT THIS for &quot;what does this bean depend on&quot;, &quot;what uses OwnerRepository&quot;, &quot;which beans inject X&quot;. Every injection point the project&#x27;s source declares, in Java, Kotlin or Scala: each constructor parameter of a bean class (a Kotlin primary constructor included), each field annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider of a type is that type), how it is injected, and whether a bean class of that name is declared in this project, counting Spring Data repository interfaces (false means another interface, a @Bean method&#x27;s product, or a bean from a library). Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations as written and matched by simple name: `candidates` lists the beans declared in this project that provide the type (the class itself, classes that say they extend or implement it, directly or through one of the project&#x27;s own interfaces, Spring Data and Feign interfaces, and @Bean methods returning it); `injected` is the one Spring would choose when the source settles it (the only one, the @Primary one, or the one a @Qualifier names) and `resolution` says why, or that it is ambiguous. Beans from libraries and auto-configuration are not seen, so a single candidate here can still meet a library&#x27;s at run time. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;]
 WITH collect(d) AS all
 WITH all, [x IN all WHERE (x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])) OR (x.kind = &#x27;interface&#x27; AND (x.signature CONTAINS &#x27;Repository&lt;&#x27; OR &#x27;FeignClient&#x27; IN x.annotations)) | x.name] AS beanNames
+/* What could be injected: each bean class with the types it says it extends or implements, each Spring Data or Feign interface, and each @Bean method with the type it returns. */
+WITH all, beanNames,
+     [x IN all WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND x.name IN beanNames
+        | {name: x.name, primary: &#x27;Primary&#x27; IN x.annotations OR &#x27;FeignClient&#x27; IN x.annotations, feign: &#x27;FeignClient&#x27; IN x.annotations, isInterface: x.kind = &#x27;interface&#x27;, how: &#x27;class&#x27;,
+           supers: &#x27; &#x27; + replace(replace(replace(reduce(kept = &#x27;&#x27;, piece IN split(
+               CASE WHEN x.language = &#x27;java&#x27; THEN CASE WHEN x.signature CONTAINS &#x27; implements &#x27; THEN split(x.signature, &#x27; implements &#x27;)[1] WHEN x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27; extends &#x27; THEN split(x.signature, &#x27; extends &#x27;)[1] ELSE &#x27;&#x27; END
+                                                  + CASE WHEN x.kind &lt;&gt; &#x27;interface&#x27; AND x.signature CONTAINS &#x27; extends &#x27; THEN &#x27; &#x27; + split(split(x.signature, &#x27; extends &#x27;)[1], &#x27; implements &#x27;)[0] ELSE &#x27;&#x27; END
+                    WHEN x.signature CONTAINS &#x27;) : &#x27; THEN last(split(x.signature, &#x27;) : &#x27;))
+                    WHEN x.signature CONTAINS &#x27; : &#x27; THEN last(split(x.signature, &#x27; : &#x27;)) ELSE &#x27;&#x27; END,
+               &#x27;&lt;&#x27;) | CASE WHEN kept = &#x27;&#x27; THEN piece WHEN piece CONTAINS &#x27;&gt;&#x27; THEN kept + &#x27; &#x27; + last(split(piece, &#x27;&gt;&#x27;)) ELSE kept END),
+               &#x27;,&#x27;, &#x27; &#x27;), &#x27;(&#x27;, &#x27; &#x27;), &#x27;)&#x27;, &#x27; &#x27;) + &#x27; &#x27;}] +
+     [x IN all WHERE x.kind = &#x27;method&#x27; AND &#x27;Bean&#x27; IN x.annotations
+        | {name: x.name, primary: &#x27;Primary&#x27; IN x.annotations, feign: false, isInterface: false, how: &#x27;@Bean method&#x27;,
+           supers: &#x27; &#x27; + split(CASE WHEN x.language = &#x27;java&#x27; THEN split(trim(split(x.signature, &#x27;(&#x27;)[0]), &#x27; &#x27;)[size(split(trim(split(x.signature, &#x27;(&#x27;)[0]), &#x27; &#x27;)) - 2]
+                                    WHEN x.signature CONTAINS &#x27;): &#x27; THEN split(trim(last(split(x.signature, &#x27;): &#x27;))), &#x27; &#x27;)[0] ELSE &#x27;&#x27; END, &#x27;&lt;&#x27;)[0] + &#x27; &#x27;}] AS candidates,
+     /* Interfaces and abstract types of the project that extend another: a class implementing one of these also provides what it extends, one step up. */
+     [x IN all WHERE x.kind IN [&#x27;interface&#x27;, &#x27;class&#x27;] AND (x.signature CONTAINS &#x27; extends &#x27; OR x.signature CONTAINS &#x27; : &#x27;)
+        | [x.name, &#x27; &#x27; + replace(replace(replace(replace(CASE WHEN x.signature CONTAINS &#x27; extends &#x27; THEN split(x.signature, &#x27; extends &#x27;)[1] ELSE last(split(x.signature, &#x27; : &#x27;)) END, &#x27;,&#x27;, &#x27; &#x27;), &#x27;(&#x27;, &#x27; &#x27;), &#x27;&lt;&#x27;, &#x27; &#x27;), &#x27;&gt;&#x27;, &#x27; &#x27;) + &#x27; &#x27;]] AS parents
 UNWIND all AS d
-WITH d, beanNames, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName
+WITH d, beanNames, candidates, parents, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName
 WHERE (d.kind = &#x27;constructor&#x27; AND ownerName IN beanNames)
    OR (d.kind = &#x27;class&#x27; AND d.language &lt;&gt; &#x27;java&#x27; AND d.signature CONTAINS &#x27;(&#x27; AND d.name IN beanNames)
    OR (d.kind = &#x27;field&#x27; AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Inject&#x27;, &#x27;Resource&#x27;]))
    OR (d.kind = &#x27;method&#x27; AND &#x27;Bean&#x27; IN d.annotations AND d.signature CONTAINS &#x27;(&#x27;)
-WITH d, beanNames, ownerName, split(d.signature, &#x27;) :&#x27;)[0] AS head
-WITH d, beanNames, ownerName,
+WITH d, beanNames, candidates, parents, ownerName, CASE WHEN d.signature CONTAINS &#x27;): &#x27; THEN split(d.signature, &#x27;): &#x27;)[0] ELSE split(d.signature, &#x27;) :&#x27;)[0] END AS head
+WITH d, beanNames, candidates, parents, ownerName,
      CASE WHEN d.kind = &#x27;field&#x27; THEN d.signature ELSE substring(head, size(split(head, &#x27;(&#x27;)[0]) + 1) END AS asked
 UNWIND split(asked, &#x27;,&#x27;) AS piece
-WITH d, beanNames, ownerName, trim(replace(piece, &#x27;)&#x27;, &#x27;&#x27;)) AS piece
-WITH d, beanNames, ownerName, piece, split(piece, &#x27; &#x27;) AS tokens
-WITH d, beanNames, ownerName,
+WITH d, beanNames, candidates, parents, ownerName, trim(replace(piece, &#x27;)&#x27;, &#x27;&#x27;)) AS piece
+WITH d, beanNames, candidates, parents, ownerName, piece, split(piece, &#x27; &#x27;) AS tokens
+WITH d, beanNames, candidates, parents, ownerName,
+     CASE WHEN piece CONTAINS &#x27;@Qualifier(&quot;&#x27; THEN split(split(piece, &#x27;@Qualifier(&quot;&#x27;)[1], &#x27;&quot;&#x27;)[0] WHEN d.kind = &#x27;field&#x27; AND ANY(t IN d.annotationText WHERE t STARTS WITH &#x27;@Qualifier(&quot;&#x27;) THEN split([t IN d.annotationText WHERE t STARTS WITH &#x27;@Qualifier(&quot;&#x27;][0], &#x27;&quot;&#x27;)[1] END AS qualifier,
      CASE WHEN d.language &lt;&gt; &#x27;java&#x27; AND piece CONTAINS &#x27;:&#x27; THEN trim(split(last(split(piece, &#x27;:&#x27;)), &#x27;=&#x27;)[0])
           WHEN d.language = &#x27;java&#x27; AND size(tokens) &gt;= 2 THEN tokens[size(tokens) - 2]
           ELSE &#x27;&#x27; END AS written
-WITH d, beanNames, ownerName, replace(written, &#x27;?&#x27;, &#x27;&#x27;) AS written
-WITH d, beanNames, ownerName, written,
+WITH d, beanNames, candidates, parents, ownerName, qualifier, replace(written, &#x27;?&#x27;, &#x27;&#x27;) AS written
+WITH d, candidates, parents, beanNames, ownerName, qualifier, written,
+     written CONTAINS &#x27;&lt;&#x27; AND split(written, &#x27;&lt;&#x27;)[0] IN [&#x27;List&#x27;, &#x27;Set&#x27;, &#x27;Collection&#x27;, &#x27;ObjectProvider&#x27;] AS many,
      CASE WHEN written CONTAINS &#x27;&lt;&#x27; AND split(written, &#x27;&lt;&#x27;)[0] IN [&#x27;List&#x27;, &#x27;Set&#x27;, &#x27;Collection&#x27;, &#x27;Optional&#x27;, &#x27;ObjectProvider&#x27;, &#x27;Provider&#x27;, &#x27;Lazy&#x27;]
           THEN split(split(written, &#x27;&lt;&#x27;)[1], &#x27;&gt;&#x27;)[0] ELSE split(written, &#x27;&lt;&#x27;)[0] END AS type
 WHERE type &lt;&gt; &#x27;&#x27; AND NOT type CONTAINS &#x27;&quot;&#x27; AND NOT type CONTAINS &#x27;(&#x27; AND NOT type CONTAINS &#x27;&gt;&#x27; AND NOT type CONTAINS &#x27; &#x27; AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) &lt;&gt; left(type, 1)
+WITH d, beanNames, candidates, parents, ownerName, qualifier, written, many, type, &#x27; &#x27; + type + &#x27; &#x27; AS needle
+WITH d, beanNames, candidates, ownerName, qualifier, written, many, type, needle, [x IN parents WHERE x[1] CONTAINS needle | &#x27; &#x27; + x[0] + &#x27; &#x27;] AS viaParents
+WITH d, beanNames, ownerName, qualifier, written, many, type,
+     [c IN candidates WHERE NOT c.isInterface AND (c.name = type AND c.how = &#x27;class&#x27; OR c.supers CONTAINS needle OR ANY(v IN viaParents WHERE c.supers CONTAINS v))] +
+     [c IN candidates WHERE c.isInterface AND c.name = type] AS found
+WITH d, beanNames, ownerName, qualifier, written, many, type, found,
+     [c IN found WHERE c.primary] AS primaries,
+     [c IN found WHERE qualifier IS NOT NULL AND toLower(c.name) = toLower(qualifier)] AS qualified
 RETURN CASE WHEN d.kind = &#x27;method&#x27; THEN coalesce(d.owner, &#x27;&#x27;) + &#x27;#&#x27; + d.name WHEN d.kind = &#x27;class&#x27; THEN d.name ELSE ownerName END AS bean,
        type, written AS asWritten,
+       [c IN found | c.name] AS candidates,
+       CASE WHEN many THEN null WHEN size(qualified) = 1 THEN qualified[0].name WHEN size(found) = 1 THEN found[0].name WHEN size(primaries) = 1 THEN primaries[0].name END AS injected,
+       CASE WHEN size(found) = 0 THEN &#x27;not declared in this project: a library\&#x27;s bean, or one registered another way&#x27;
+            WHEN many THEN &#x27;all &#x27; + toString(size(found)) + &#x27; declared here, as a collection&#x27;
+            WHEN size(qualified) = 1 THEN &#x27;named by @Qualifier&#x27;
+            WHEN size(found) = 1 THEN CASE WHEN found[0].name = type THEN &#x27;the type itself&#x27; ELSE &#x27;the only one declared here&#x27; END
+            WHEN size(primaries) = 1 THEN CASE WHEN primaries[0].feign THEN &#x27;the Feign client, which is primary by default, among &#x27; ELSE &#x27;marked @Primary among &#x27; END + toString(size(found))
+            ELSE &#x27;ambiguous: &#x27; + toString(size(found)) + &#x27; declared here and none is @Primary or named by @Qualifier; Spring falls back to the parameter\&#x27;s name, and fails if that matches none&#x27; END AS resolution,
        CASE d.kind WHEN &#x27;field&#x27; THEN &#x27;field&#x27; WHEN &#x27;method&#x27; THEN &#x27;@Bean method parameter&#x27; ELSE &#x27;constructor&#x27; END AS injectedBy,
        type IN beanNames AS declaredHere,
        d.language AS language, d.path AS file, d.line AS line, d.url AS link
@@ -1563,9 +1599,9 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       [['severity', 'Severity', function (r) { return '<span class="kind">' + esc(r.severity) + '</span>'; }], ['found', 'Found', function (r) { return esc(r.found) + '<div class="sub" style="margin-top:3px">' + esc(r.fix) + '</div>'; }], ['class', 'In', member], ['path', 'Where', where]]],
     ['ask', 'Ask', null, '', '', []],
     ['code', 'Search code', null, '', '', []],
-    ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type. Matched by type name; which implementation is injected is not resolved.',
+    ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type, and which bean of this project Spring would inject when the source settles it (the only one, the @Primary one, or the one a @Qualifier names). Beans from libraries are not seen.',
       [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
-       ['declaredHere', 'Declared in this project', function (r) { return String(r.declaredHere) === 'true' ? 'yes' : 'no'; }], ['file', 'Where', at]]]
+       ['injected', 'Gets', function (r) { return (r.injected ? '<span class="mono">' + esc(r.injected) + '</span><br>' : '') + '<span class="muted">' + esc(r.resolution || '') + '</span>'; }], ['file', 'Where', at]]]
   ];
   /* ── ask: Spring's documentation, this project's documents and what the team added, with a written answer ── */
   function gatewayCall(ns, method) { try { var n = gateway[ns]; return n && method in n ? n[method] : null; } catch (e) { return null; } }
