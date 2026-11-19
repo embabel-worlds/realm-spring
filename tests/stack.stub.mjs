@@ -43,7 +43,9 @@ const FIX = {
     { extension: 'kt', files: 60, mainFiles: 45, testFiles: 15, modules: 2 }, { extension: 'java', files: 30, mainFiles: 24, testFiles: 6, modules: 2 },
     { extension: 'ts', files: 10, mainFiles: 0, testFiles: 0, modules: 1 }, { extension: 'yml', files: 12, mainFiles: 4, testFiles: 2, modules: 3 },
     { extension: 'zzz', files: 99, mainFiles: 0, testFiles: 0, modules: 1 }],
-  Beans: [{ bean: 'com.acme.shop.api.ApiConfig.clock', declaredBy: '@Bean method', profiles: [], conditions: [], module: 'shop-api', file: 'shop-api/src/main/java/ApiConfig.java', line: 9, link: null }],
+  Beans: [{ bean: 'ApiConfig#clock', declaredBy: '@Bean method', profiles: [], conditions: [], language: 'java', module: 'shop-api', file: 'shop-api/src/main/java/ApiConfig.java', line: 9, link: null },
+          { bean: 'CartController', declaredBy: '@RestController', profiles: [], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
+          { bean: 'CartService', declaredBy: '@Service', profiles: ['prod'], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartService.kt', line: 8, link: null }],
   Profiles: [{ profile: 'dev', where: 'file', what: 'application-dev.yml', file: 'shop-web/src/main/resources/application-dev.yml', line: 1, link: null }],
 };
 
@@ -106,7 +108,7 @@ try {
   ok((await text(page, '#progress .ptop b')) === 'Done — all 6 checks completed', 'the outcome says every check completed');
   const outcome = await text(page, '#progress .outcome');
   ok(outcome.includes('github.com/acme/shop@1915b7016b3f') && outcome.includes('4 module(s)') && outcome.includes('310 Java types'), 'and what was read: the commit, modules and types');
-  ok(outcome.includes('65 Kotlin source files') && outcome.includes('incomplete'), 'a Kotlin project is told its beans and code rules are incomplete, with the count (40 + 25 main files)');
+  ok(outcome.includes('65 Kotlin source files') && outcome.includes('code rules') && outcome.includes('incomplete') && outcome.includes('Beans, endpoints and the structure cover Kotlin'), 'a Kotlin project is told which checks still read Java only, with the count (40 + 25 main files)');
   ok((await text(page, '#recommend')).includes('nothing to upgrade to'), 'on the newest release, no upgrade is offered');
   ok(!(await page.evaluate(() => window.__calls)).some((c) => c.startsWith('UpgradeConfiguration')), 'and no upgrade check is run against the version it is already on');
   await page.click('button[data-tab="upgrade"]');
@@ -179,13 +181,14 @@ try {
   await page.click('button[data-tab="beans"]');
   await page.waitForTimeout(1300);
   const loading = await text(page, '#panel');
-  ok(/Reading every @Bean.*— [1-9] s/.test(loading), 'while beans are read the panel says what is being read and for how long: ' + loading.trim().slice(0, 90));
+  ok(/Reading every @Bean.*Kotlin.*— [1-9] s/.test(loading), 'while beans are read the panel says what is being read and for how long: ' + loading.trim().slice(0, 90));
   await page.click('button[data-tab="profiles"]');   /* a click while the slow call is in flight */
   await page.waitForSelector('#panel table');
   ok((await text(page, '#panel')).includes('application-dev.yml'), 'another tab opens while beans are still loading');
   await page.click('button[data-tab="beans"]');
   await page.waitForSelector('#panel table', { timeout: 6000 });
-  ok((await text(page, '#panel')).includes('Incomplete') && (await text(page, '#panel')).includes('1 beans declared in Java source'), 'the beans arrive, with the Kotlin warning above them');
+  ok((await text(page, '#panel')).includes('3 beans declared in main source (2 in Kotlin, 1 in Java)') && (await text(page, '#panel')).includes('CartService'), 'the beans arrive, counted by language as the fixture has them: 2 Kotlin, 1 Java');
+  ok(!(await text(page, '#panel')).includes('Incomplete'), 'with no warning, since beans are read from Kotlin too');
   ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
   await page.close();
 

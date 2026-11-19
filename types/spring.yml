@@ -257,3 +257,21 @@
     modules: { type: int, description: "Maven modules at the last read." }
     analysedAt: "When it was last read, ISO-8601."
     failed: { type: int, description: "How many of the page's checks could not complete at the last read." }
+
+# What the source declares, in whatever JVM language it is written. Beans, endpoints, transactions
+# and background work are all "a declaration carrying a certain annotation", so they read this one
+# join and nothing that knows a language.
+- name: SpringDeclaration
+  parents: [SourceDeclaration]
+  visibility: internal
+  userAnchor: false
+  description: "A class, object, interface, function, method or field a project declares in Java, Kotlin or Scala, with its annotations by name (`annotations`) and as written (`annotationText`). Reach it from (:JavaProject {key})-[:DECLARES_SOURCE]->."
+  virtualJoins:
+    - { anchorLabel: JavaProject, relationship: DECLARES_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springDeclarations, maxFanoutTotal: 500000,
+        description: "(:JavaProject {key:$project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)" }
+  properties:
+    path: "File path, relative to the project."
+    language: "java, kotlin or scala."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."

@@ -4,26 +4,33 @@
 
 - name: Beans
   description: >-
-    Every bean the project's source declares: classes annotated @Component, @Service,
-    @Repository, @Controller, @RestController or @Configuration, and @Bean methods — each with the
-    profiles and conditions it is declared under, and a link to its line. What the source says;
-    a running app's RuntimeBeans says what was actually created.
+    Every bean the project's source declares, in Java, Kotlin or Scala: classes annotated
+    @Component, @Service, @Repository, @Controller, @RestController, @Configuration or a controller
+    advice, and @Bean methods — each with the profiles and conditions written on it or on its class,
+    and a link to its line. What the source says; a running app's RuntimeBeans says what was
+    actually created. Test source is left out.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice']
-    WITH p, a
-    OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(o:JavaProjectAnnotation)
-    WHERE (o.targetId = a.targetId OR (a.targetKind = 'method' AND o.targetKind = 'type' AND o.targetName = a.owner))
-      AND (o.name = 'Profile' OR o.name STARTS WITH 'Conditional')
-    WITH a, collect(DISTINCT CASE WHEN o.name = 'Profile' THEN o.value END) AS profiles,
-         collect(DISTINCT CASE WHEN o.name STARTS WITH 'Conditional' THEN o.text END) AS conditions
-    RETURN CASE WHEN a.name = 'Bean' THEN a.owner + '#' + a.targetName ELSE a.targetName END AS bean,
-           CASE WHEN a.name = 'Bean' THEN '@Bean method' ELSE '@' + a.name END AS declaredBy,
-           [x IN profiles WHERE x IS NOT NULL] AS profiles, [x IN conditions WHERE x IS NOT NULL] AS conditions,
-           a.module AS module, a.path AS file, a.line AS line, a.link AS link
-    ORDER BY declaredBy, bean LIMIT 2000
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice']
+                                        OR ANY(g IN ['Profile', 'Conditional'] WHERE a STARTS WITH g))
+    // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
+    WITH [x IN collect(d) WHERE x.kind IN ['class', 'object', 'interface'] AND ANY(a IN x.annotations WHERE a = 'Profile' OR a STARTS WITH 'Conditional')
+          | {path: x.path, name: x.name, text: x.annotationText}] AS gates,
+         [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice'])] AS beans
+    UNWIND beans AS d
+    WITH d, [a IN d.annotations WHERE a IN ['Bean', 'Configuration', 'RestController', 'Controller', 'RestControllerAdvice', 'ControllerAdvice', 'Service', 'Repository', 'Component']][0] AS stereotype,
+         d.annotationText + reduce(acc = [], g IN [x IN gates WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, ''), '.'))] | acc + g.text) AS written
+    RETURN CASE WHEN stereotype = 'Bean' THEN coalesce(d.owner, '') + '#' + d.name ELSE CASE WHEN coalesce(d.owner, '') = '' THEN d.name ELSE d.owner + '.' + d.name END END AS bean,
+           CASE WHEN stereotype = 'Bean' THEN '@Bean method' ELSE '@' + stereotype END AS declaredBy,
+           [t IN written WHERE t STARTS WITH '@Profile' AND t CONTAINS '"' | split(t, '"')[1]] AS profiles,
+           [t IN written WHERE t STARTS WITH '@Conditional'] AS conditions,
+           d.language AS language,
+           CASE WHEN ('/' + d.path) CONTAINS '/src/' THEN substring(split('/' + d.path, '/src/')[0], 1) ELSE '' END AS module,
+           d.path AS file, d.line AS line, d.url AS link
+    ORDER BY declaredBy, bean LIMIT 5000
 
 - name: Profiles
   description: >-

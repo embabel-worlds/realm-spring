@@ -358,19 +358,25 @@ RETURN &#x27;vulnerable:&#x27; + coordinates AS id,
             ELSE &#x27;No fix on your &#x27; + line + &#x27; line: move to a newer line (see the Upgrade tab).&#x27; END AS fix,
        coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
 ORDER BY cvss DESC LIMIT 500</pre></details>
-  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares: classes annotated @Component, @Service, @Repository, @Controller, @RestController or @Configuration, and @Bean methods — each with the profiles and conditions it is declared under, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
-WHERE a.name IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
-WITH p, a
-OPTIONAL MATCH (p)-[:HAS_ANNOTATION]-&gt;(o:JavaProjectAnnotation)
-WHERE (o.targetId = a.targetId OR (a.targetKind = &#x27;method&#x27; AND o.targetKind = &#x27;type&#x27; AND o.targetName = a.owner))
-  AND (o.name = &#x27;Profile&#x27; OR o.name STARTS WITH &#x27;Conditional&#x27;)
-WITH a, collect(DISTINCT CASE WHEN o.name = &#x27;Profile&#x27; THEN o.value END) AS profiles,
-     collect(DISTINCT CASE WHEN o.name STARTS WITH &#x27;Conditional&#x27; THEN o.text END) AS conditions
-RETURN CASE WHEN a.name = &#x27;Bean&#x27; THEN a.owner + &#x27;#&#x27; + a.targetName ELSE a.targetName END AS bean,
-       CASE WHEN a.name = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; ELSE &#x27;@&#x27; + a.name END AS declaredBy,
-       [x IN profiles WHERE x IS NOT NULL] AS profiles, [x IN conditions WHERE x IS NOT NULL] AS conditions,
-       a.module AS module, a.path AS file, a.line AS line, a.link AS link
-ORDER BY declaredBy, bean LIMIT 2000</pre></details>
+  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration or a controller advice, and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT (&#x27;/&#x27; + d.path) CONTAINS &#x27;/src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
+                                    OR ANY(g IN [&#x27;Profile&#x27;, &#x27;Conditional&#x27;] WHERE a STARTS WITH g))
+// One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
+WITH [x IN collect(d) WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND ANY(a IN x.annotations WHERE a = &#x27;Profile&#x27; OR a STARTS WITH &#x27;Conditional&#x27;)
+      | {path: x.path, name: x.name, text: x.annotationText}] AS gates,
+     [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])] AS beans
+UNWIND beans AS d
+WITH d, [a IN d.annotations WHERE a IN [&#x27;Bean&#x27;, &#x27;Configuration&#x27;, &#x27;RestController&#x27;, &#x27;Controller&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Component&#x27;]][0] AS stereotype,
+     d.annotationText + reduce(acc = [], g IN [x IN gates WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;))] | acc + g.text) AS written
+RETURN CASE WHEN stereotype = &#x27;Bean&#x27; THEN coalesce(d.owner, &#x27;&#x27;) + &#x27;#&#x27; + d.name ELSE CASE WHEN coalesce(d.owner, &#x27;&#x27;) = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END END AS bean,
+       CASE WHEN stereotype = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; ELSE &#x27;@&#x27; + stereotype END AS declaredBy,
+       [t IN written WHERE t STARTS WITH &#x27;@Profile&#x27; AND t CONTAINS &#x27;&quot;&#x27; | split(t, &#x27;&quot;&#x27;)[1]] AS profiles,
+       [t IN written WHERE t STARTS WITH &#x27;@Conditional&#x27;] AS conditions,
+       d.language AS language,
+       CASE WHEN (&#x27;/&#x27; + d.path) CONTAINS &#x27;/src/&#x27; THEN substring(split(&#x27;/&#x27; + d.path, &#x27;/src/&#x27;)[0], 1) ELSE &#x27;&#x27; END AS module,
+       d.path AS file, d.line AS line, d.url AS link
+ORDER BY declaredBy, bean LIMIT 5000</pre></details>
   <details><summary><b>Profiles</b> — Every Spring profile the project uses and where: @Profile on classes and @Bean methods, application-&lt;profile&gt; files, and YAML documents activated on a profile.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {name: &#x27;Profile&#x27;})
 UNWIND a.values AS profile
 RETURN profile, &#x27;code&#x27; AS where, coalesce(a.owner + &#x27;#&#x27; + a.targetName, a.targetName) AS what, a.path AS file, a.line AS line, a.link AS link
@@ -385,6 +391,43 @@ RETURN s.value AS profile, &#x27;document&#x27; AS where, s.fileName + &#x27; do
   <details><summary><b>Triage</b> — What has been decided about this project&#x27;s findings: done, snoozed or won&#x27;t fix, with notes.</summary><pre class="mono">MATCH (t:SpringTriage {project: $project})
 RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
 LIMIT 2000</pre></details>
+  <details><summary><b>MyProjects</b> — The projects analyzed on the Spring Stack page, most recently read first, with the Spring Boot version and outcome of the last read.</summary><pre class="mono">MATCH (p:SpringProject)
+RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
+       p.modules AS modules, p.analysedAt AS analysedAt, p.failed AS failed
+ORDER BY analysedAt DESC LIMIT 200</pre></details>
+  <details><summary><b>ModuleSources</b> — Each Maven module of a project with how many source files it holds, main and test, and in which languages. The first step down from a project: pick a module, then ask ModulePackages.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_MODULE]-&gt;(m:ProjectModule)
+OPTIONAL MATCH (p)-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.module = m.module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
+WITH m, f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;)[0] AS sourceSet
+RETURN m.module AS module, m.coordinates AS coordinates, m.packaging AS packaging, m.name AS name,
+       count(CASE WHEN sourceSet = &#x27;main&#x27; THEN 1 END) AS mainFiles,
+       count(CASE WHEN sourceSet = &#x27;test&#x27; THEN 1 END) AS testFiles,
+       [x IN collect(DISTINCT f.extension) WHERE x IS NOT NULL] AS languages
+ORDER BY mainFiles DESC, module LIMIT 500</pre></details>
+  <details><summary><b>ModulePackages</b> — The packages of one Maven module, by source set (main, test), with how many source files each holds and in which languages. A package is the directory under `src/&lt;set&gt;/&lt;language&gt;/`.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.module = $module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
+WITH f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;) AS parts
+WITH parts[0] AS sourceSet, f,
+     reduce(s = &#x27;&#x27;, x IN parts[2..size(parts) - 1] | CASE WHEN s = &#x27;&#x27; THEN x ELSE s + &#x27;.&#x27; + x END) AS package
+RETURN package, sourceSet, count(f) AS files, collect(DISTINCT f.extension) AS languages
+ORDER BY sourceSet, package LIMIT 3000</pre></details>
+  <details><summary><b>PackageFiles</b> — The source files of one package in one module and source set, each with a link to it on the repository&#x27;s host.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.module = $module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
+WITH f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;) AS parts
+WITH f, parts[0] AS sourceSet,
+     reduce(s = &#x27;&#x27;, x IN parts[2..size(parts) - 1] | CASE WHEN s = &#x27;&#x27; THEN x ELSE s + &#x27;.&#x27; + x END) AS package
+WHERE package = $package AND sourceSet = $sourceSet
+RETURN f.fileName AS file, f.extension AS language, f.path AS path, f.link AS link
+ORDER BY file LIMIT 2000</pre></details>
+  <details><summary><b>FilesByExtension</b> — What a project is written in: its files counted by extension, with how many are under src/main and src/test and how many modules hold them. Every file is counted, not only JVM source, so a build with TypeScript, Python or templates beside its Kotlin and Java shows them.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
+WHERE f.extension IS NOT NULL AND f.extension &lt;&gt; &#x27;&#x27;
+WITH f.extension AS extension, f,
+     CASE WHEN (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/test/&#x27; THEN &#x27;test&#x27; WHEN (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/main/&#x27; THEN &#x27;main&#x27; ELSE &#x27;other&#x27; END AS place
+RETURN extension, count(f) AS files,
+       count(CASE WHEN place = &#x27;main&#x27; THEN 1 END) AS mainFiles,
+       count(CASE WHEN place = &#x27;test&#x27; THEN 1 END) AS testFiles,
+       count(DISTINCT f.module) AS modules
+ORDER BY files DESC LIMIT 80</pre></details>
   <details><summary><b>WhyNotApplied</b> — Why each auto-configuration or @Bean method did NOT apply in a running app, in Spring&#x27;s own words — &quot;why isn&#x27;t my bean created&quot;. Takes /actuator/conditions.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:EVALUATED]-&gt;(c:RuntimeCondition {configurationMatched: false, outcome: &#x27;notMatched&#x27;})
 RETURN c.configuration AS configuration, c.beanMethod AS beanMethod, c.condition AS condition, c.message AS why
 ORDER BY configuration LIMIT 2000</pre></details>
@@ -518,7 +561,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (o) bits.push('Read <b>' + esc(o.project) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
     else if (s) bits.push('Read <b>' + esc(state.project) + '</b>');
     var k = kotlinFiles();
-    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. Beans, endpoints, transactions and code rules are read from Java source only, so for this project they are incomplete.</span>');
+    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. The code rules and the configuration check read Java source only, so for this project they are incomplete. Beans, endpoints and the structure cover Kotlin.</span>');
     return bits.length ? '<div class="outcome">' + bits.join('<br>') + '</div>' : '';
   }
   function kotlinFiles() {
@@ -887,10 +930,11 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   });
 
   function renderBeans() {
-    if (!state.beans) { waiting('beans', 'Beans', 'Reading every @Bean method and stereotype annotation in the project’s Java source', function () { return view('Beans', { project: state.project }); }); return; }
-    var k = kotlinFiles();
-    $('panel').innerHTML = (k ? '<div class="note warn">Incomplete: this project has ' + k + ' Kotlin source files, and beans are read from Java source only. The beans below are the ones declared in Java.</div>' : '') +
-      '<div class="sub" style="margin-bottom:10px">' + state.beans.length + ' beans declared in Java source. Paste /actuator/beans on the Runtime tab to see what actually got created.</div>' +
+    if (!state.beans) { waiting('beans', 'Beans', 'Reading every @Bean method and stereotype annotation in the project’s Java, Kotlin and Scala source', function () { return view('Beans', { project: state.project }); }); return; }
+    var langs = {}; state.beans.forEach(function (r) { if (r.language) langs[r.language] = (langs[r.language] || 0) + 1; });
+    var byLang = Object.keys(langs).sort(function (x, y) { return langs[y] - langs[x]; }).map(function (l) { return num(langs[l]) + ' in ' + l.charAt(0).toUpperCase() + l.slice(1); }).join(', ');
+    $('panel').innerHTML = '<div class="sub" style="margin-bottom:10px">' + num(state.beans.length) + ' beans declared in main source' + (byLang ? ' (' + byLang + ')' : '') +
+      '. Test source is left out. Paste /actuator/beans on the Runtime tab to see what actually got created.</div>' +
       table(state.beans, [['bean', 'Bean', function (r) { return '<span class="mono">' + esc(r.bean) + '</span>'; }], ['declaredBy', 'Declared by'], ['profiles', 'Profiles'], ['conditions', 'Conditions'], ['file', 'Where', at]]);
   }
   function renderProfiles() {

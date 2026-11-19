@@ -1,0 +1,4 @@
+# A project's declarations, read by the `source-tree` kind's generic `declarations` emit: the same
+# tree-sitter reading every language gets, with no language of its own in the engine. Spring runs on
+# the JVM, so the JVM languages the kind reads are named; add one here when the kind gains it.
+- { name: springDeclarations, kind: source-tree, emit: declarations, languages: [java, kotlin, scala] }

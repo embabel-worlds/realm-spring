@@ -7,61 +7,76 @@
   description: >-
     SELECT THIS for "what endpoints does this service expose", "which method handles GET
     /owners", "where is this route implemented". Every HTTP endpoint the project's main source
-    declares with Spring's mapping annotations: the HTTP method, the route (the class's
-    @RequestMapping prefix and the method's own path), the handler class and method, and its file
-    and line. What the source declares; a running application's mappings can add framework
-    endpoints (the actuator's) that are not here.
+    declares with Spring's mapping annotations, in Java, Kotlin or Scala: the HTTP method, the route
+    (the class's @RequestMapping prefix and the method's own path), the handler class and method,
+    and its file and line. What the source declares; a running application's mappings can add
+    framework endpoints (the actuator's) that are not here. A path given as a constant rather than
+    a string is shown as written.
   params:
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name IN ['GetMapping', 'PostMapping', 'PutMapping', 'DeleteMapping', 'PatchMapping', 'RequestMapping']
-      AND a.targetKind = 'method' AND NOT a.path CONTAINS 'src/test/'
-    WITH p, a
-    OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(c:JavaProjectAnnotation)
-    WHERE c.name = 'RequestMapping' AND c.targetKind = 'type' AND c.targetName = a.owner
-    WITH a, coalesce(head(collect(c.value)), '') AS prefix
-    RETURN CASE a.name WHEN 'GetMapping' THEN 'GET' WHEN 'PostMapping' THEN 'POST' WHEN 'PutMapping' THEN 'PUT'
-                       WHEN 'DeleteMapping' THEN 'DELETE' WHEN 'PatchMapping' THEN 'PATCH'
-                       ELSE coalesce(head([x IN a.attributes WHERE x STARTS WITH 'method=' | replace(substring(x, 7), 'RequestMethod.', '')]), 'ANY') END AS method,
-           prefix + coalesce(a.value, '') AS route, last(split(a.owner, '.')) AS class, a.targetName AS handler,
-           a.owner AS owner, a.path AS path, a.line AS line, a.link AS link
-    ORDER BY route, method LIMIT 2000
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['GetMapping', 'PostMapping', 'PutMapping', 'DeleteMapping', 'PatchMapping', 'RequestMapping'])
+    WITH [x IN collect(d) WHERE x.kind IN ['class', 'object', 'interface']
+          | {path: x.path, name: x.name, text: [t IN x.annotationText WHERE t STARTS WITH '@RequestMapping'][0]}] AS classes,
+         [x IN collect(d) WHERE NOT x.kind IN ['class', 'object', 'interface']] AS handlers
+    UNWIND handlers AS d
+    WITH d, [t IN d.annotationText WHERE ANY(m IN ['@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping', '@RequestMapping'] WHERE t STARTS WITH m)][0] AS written,
+         [x IN classes WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, ''), '.'))][0].text AS classWritten
+    WITH d, written, CASE WHEN classWritten CONTAINS '"' THEN split(classWritten, '"')[1] ELSE '' END AS prefix
+    RETURN CASE WHEN written STARTS WITH '@GetMapping' THEN 'GET' WHEN written STARTS WITH '@PostMapping' THEN 'POST'
+                WHEN written STARTS WITH '@PutMapping' THEN 'PUT' WHEN written STARTS WITH '@DeleteMapping' THEN 'DELETE'
+                WHEN written STARTS WITH '@PatchMapping' THEN 'PATCH'
+                WHEN written CONTAINS 'RequestMethod.' THEN split(split(split(split(written, 'RequestMethod.')[1], ')')[0], ']')[0], ',')[0]
+                ELSE 'ANY' END AS method,
+           prefix + CASE WHEN written CONTAINS '"' THEN split(written, '"')[1] ELSE '' END AS route,
+           last(split(coalesce(d.owner, ''), '.')) AS class, d.name AS handler, d.owner AS owner, written AS declared,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY route, method LIMIT 5000
 
 - name: TransactionalMethods
   description: >-
     SELECT THIS for "which methods run in a transaction", "where are our transaction
     boundaries", "is this method transactional". Every place the project's main source declares
-    @Transactional: on a method, or on a class (then every public method of it is transactional),
-    with what the annotation asks for (readOnly, propagation, timeout, rollbackFor) and its file
-    and line. `on` is method or type. What the source declares: whether the transaction actually
-    applies (a private method, or a call from inside the same class, gets none) is a separate check.
+    @Transactional, in Java, Kotlin or Scala: on a method, or on a class (then every public method
+    of it is transactional), with what the annotation asks for (readOnly, propagation, timeout) and
+    its file and line. `on` is method or type. What the source declares: whether the transaction
+    actually applies (a private method, or a call from inside the same class, gets none) is a
+    separate check.
   params:
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name = 'Transactional' AND NOT a.path CONTAINS 'src/test/'
-    RETURN a.targetKind AS on, last(split(coalesce(a.owner, a.targetName), '.')) AS class,
-           CASE WHEN a.targetKind = 'type' THEN null ELSE a.targetName END AS method,
-           coalesce(head([x IN a.attributes WHERE x STARTS WITH 'readOnly=' | substring(x, 9)]), 'false') = 'true' AS readOnly,
-           head([x IN a.attributes WHERE x STARTS WITH 'propagation=' | replace(substring(x, 12), 'Propagation.', '')]) AS propagation,
-           head([x IN a.attributes WHERE x STARTS WITH 'timeout=' | substring(x, 8)]) AS timeout,
-           a.qualifiedName AS annotation, a.path AS path, a.line AS line, a.link AS link
-    ORDER BY path, line LIMIT 2000
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT ('/' + d.path) CONTAINS '/src/test/' AND 'Transactional' IN d.annotations
+    WITH d, d.kind IN ['class', 'object', 'interface'] AS onType,
+         replace([t IN d.annotationText WHERE t STARTS WITH '@Transactional'][0], ' ', '') AS written
+    RETURN CASE WHEN onType THEN 'type' ELSE 'method' END AS on,
+           CASE WHEN onType THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN onType THEN null ELSE d.name END AS method,
+           written CONTAINS 'readOnly=true' AS readOnly,
+           CASE WHEN written CONTAINS 'Propagation.' THEN split(split(split(written, 'Propagation.')[1], ')')[0], ',')[0] END AS propagation,
+           CASE WHEN written CONTAINS 'timeout=' THEN split(split(split(written, 'timeout=')[1], ')')[0], ',')[0] END AS timeout,
+           [t IN d.annotationText WHERE t STARTS WITH '@Transactional'][0] AS annotation,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY path, line LIMIT 5000
 
 - name: BackgroundWork
   description: >-
     SELECT THIS for "what runs on a schedule", "which methods listen to a queue or topic", "what
     runs outside a request". The methods the project's main source gives a job outside a web
-    request: @Scheduled (with its cron or rate), message listeners (@KafkaListener,
-    @RabbitListener, @JmsListener, @SqsListener), @EventListener and @Async, each with its class,
-    method, file and line.
+    request, in Java, Kotlin or Scala: @Scheduled (with its cron or rate), message listeners
+    (@KafkaListener, @RabbitListener, @JmsListener, @SqsListener), @EventListener and @Async, each
+    with its class, method, file and line.
   params:
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async']
-      AND NOT a.path CONTAINS 'src/test/'
-    RETURN a.name AS kind, last(split(coalesce(a.owner, a.targetName), '.')) AS class, a.targetName AS method,
-           a.attributes AS declared, a.path AS path, a.line AS line, a.link AS link
-    ORDER BY kind, path, line LIMIT 2000
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async'])
+    WITH d, [a IN d.annotations WHERE a IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async']][0] AS kind
+    RETURN kind, CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN null ELSE d.name END AS method,
+           [t IN d.annotationText WHERE t STARTS WITH '@' + kind][0] AS declared,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY kind, path, line LIMIT 5000
