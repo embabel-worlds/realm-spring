@@ -61,7 +61,7 @@
     project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it. Empty searches Spring's documentation only." }
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
-    WITH h, r, CASE WHEN $project STARTS WITH 'https://github.com/' THEN 'https://raw.githubusercontent.com/' + substring($project, 19) + '/' ELSE '~none~' END AS own,
+    WITH h, r, 'project-doc://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '!' AS own,
          'spring-notes://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '/' AS added
     WHERE 'spring-docs' IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
     RETURN CASE WHEN h.uri STARTS WITH added THEN 'Added by your team' WHEN h.uri STARTS WITH own THEN 'This project\'s documents' ELSE 'Spring documentation' END AS source,
@@ -80,7 +80,7 @@
     project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it." }
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
-    WITH h, r, CASE WHEN $project STARTS WITH 'https://github.com/' THEN 'https://raw.githubusercontent.com/' + substring($project, 19) + '/' ELSE '~none~' END AS own,
+    WITH h, r, 'project-doc://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '!' AS own,
          'spring-notes://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '/' AS added
     WHERE 'spring-docs' IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
     WITH h, r ORDER BY r.score DESC LIMIT 6

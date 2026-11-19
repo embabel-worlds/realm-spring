@@ -888,23 +888,24 @@ sources:
       schedule: "0 30 4 * * MON"
       prune: true
 
-  # A PROJECT'S OWN DOCUMENTS: the Markdown and AsciiDoc files of every project kept on the Spring
-  # page (README, docs/, decision records), fetched from its repository host and tagged
-  # `project-docs`. GitHub repositories the appliance can read without a login; a private
-  # repository's files are not fetched. Read again when a project's commit changes.
+  # A PROJECT'S OWN DOCUMENTS: the Markdown, AsciiDoc and reStructuredText files of every project kept
+  # on the Spring page (README, docs/, decision records), read from the files the appliance already
+  # has, so a private repository's documents are indexed as a public one's are. Tagged
+  # `project-docs`. Each is versioned by its text: an unchanged document is not embedded again, and
+  # one that is gone is pruned. Run from the page ("Index this project's documents").
   - name: project-docs
     lane: documents
     extractEntities: false
     from:
       cypher: |
-        MATCH (sp:SpringProject)-[:HAS_DOC_FILE]->(f:SpringProjectFile)
-        WHERE f.extension IN ['md', 'markdown', 'adoc'] AND f.link CONTAINS 'github.com/' AND f.link CONTAINS '/blob/'
-          AND NOT f.path CONTAINS 'node_modules/' AND NOT f.path CONTAINS '/target/' AND NOT f.path CONTAINS '/build/'
-        RETURN sp.key AS project, f.path AS path,
-               replace(replace(f.link, 'https://github.com/', 'https://raw.githubusercontent.com/'), '/blob/', '/') AS raw
-        LIMIT 2000
+        MATCH (sp:SpringProject)-[:HAS_DOCUMENT]->(d:SpringProjectDocument)
+        RETURN CASE WHEN sp.key STARTS WITH 'https://' THEN substring(sp.key, 8) ELSE sp.key END AS project,
+               d.path AS path, d.title AS title, d.text AS text
+        LIMIT 5000
     document:
-      url: "{{ raw }}"
+      uri: "project-doc://{{ project }}!{{ path }}"
+      title: "{{ title }} ({{ path }})"
+      content: "{{ text }}"
       sourceKind: project-docs
       tags: [project-docs]
     sync:

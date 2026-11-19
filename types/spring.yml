@@ -370,15 +370,17 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
 
-- name: SpringProjectFile
+- name: SpringProjectDocument
   visibility: internal
   userAnchor: false
-  description: "A file of a project kept on the Spring page, read to find its documents (README, docs, decision records). Reach it from (:SpringProject {key})-[:HAS_DOC_FILE]->."
+  description: "A written document of a project kept on the Spring page (README, docs, decision records: Markdown, AsciiDoc or reStructuredText), with its text. Reach it from (:SpringProject {key})-[:HAS_DOCUMENT]->."
   virtualJoins:
-    - { anchorLabel: SpringProject, relationship: HAS_DOC_FILE, keyField: key, recordKeyField: anchorKey, producer: springProjectFiles, maxFanoutTotal: 200000,
-        description: "(:SpringProject {key:$project})-[:HAS_DOC_FILE]->(f:SpringProjectFile)" }
+    - { anchorLabel: SpringProject, relationship: HAS_DOCUMENT, keyField: key, recordKeyField: anchorKey, producer: springProjectDocuments, maxFanoutTotal: 20000,
+        description: "(:SpringProject {key:$project})-[:HAS_DOCUMENT]->(d:SpringProjectDocument)" }
   properties:
     id: { identity: true, description: "`<project>!<path>`." }
     path: "Path within the project."
-    extension: "Its extension, lower case."
+    title: "Its first heading, or its file name."
+    format: "md, markdown, adoc, asciidoc or rst."
+    text: "Its text."
     link: "Its page on the repository's host."
