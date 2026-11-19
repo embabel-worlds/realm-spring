@@ -6,7 +6,7 @@
   description: >-
     Every bean the project's source declares, in Java, Kotlin or Scala: classes annotated
     @Component, @Service, @Repository, @Controller, @RestController, @Configuration,
-    @SpringBootApplication or a controller advice, Spring Data repository interfaces, and @Bean methods — each with the profiles and conditions written on it or on its class,
+    @SpringBootApplication or a controller advice, Spring Data repository interfaces, OpenFeign clients (@FeignClient), and @Bean methods — each with the profiles and conditions written on it or on its class,
     and a link to its line. What the source says; a running app's RuntimeBeans says what was
     actually created. Test source is left out.
   params:
@@ -14,15 +14,15 @@
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
-      AND (ANY(a IN d.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice', 'SpringBootApplication']
+      AND (ANY(a IN d.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice', 'SpringBootApplication', 'FeignClient']
                                         OR ANY(g IN ['Profile', 'Conditional'] WHERE a STARTS WITH g))
            OR (d.kind = 'interface' AND d.signature CONTAINS 'Repository<'))
     // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
     WITH [x IN collect(d) WHERE x.kind IN ['class', 'object', 'interface'] AND ANY(a IN x.annotations WHERE a = 'Profile' OR a STARTS WITH 'Conditional')
           | {path: x.path, name: x.name, text: x.annotationText}] AS gates,
-         [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice', 'SpringBootApplication']) OR (x.kind = 'interface' AND x.signature CONTAINS 'Repository<')] AS beans
+         [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice', 'SpringBootApplication', 'FeignClient']) OR (x.kind = 'interface' AND x.signature CONTAINS 'Repository<')] AS beans
     UNWIND beans AS d
-    WITH d, coalesce([a IN d.annotations WHERE a IN ['Bean', 'SpringBootApplication', 'Configuration', 'RestController', 'Controller', 'RestControllerAdvice', 'ControllerAdvice', 'Service', 'Repository', 'Component']][0], 'Spring Data repository') AS stereotype,
+    WITH d, coalesce([a IN d.annotations WHERE a IN ['Bean', 'SpringBootApplication', 'Configuration', 'RestController', 'Controller', 'RestControllerAdvice', 'ControllerAdvice', 'Service', 'Repository', 'Component', 'FeignClient']][0], 'Spring Data repository') AS stereotype,
          d.annotationText + reduce(acc = [], g IN [x IN gates WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, ''), '.'))] | acc + g.text) AS written
     RETURN CASE WHEN stereotype = 'Bean' THEN coalesce(d.owner, '') + '#' + d.name ELSE CASE WHEN coalesce(d.owner, '') = '' THEN d.name ELSE d.owner + '.' + d.name END END AS bean,
            CASE WHEN stereotype = 'Bean' THEN '@Bean method' WHEN stereotype = 'Spring Data repository' THEN stereotype ELSE '@' + stereotype END AS declaredBy,
@@ -279,7 +279,7 @@
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method']
     WITH collect(d) AS all
-    WITH all, [x IN all WHERE (x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice'])) OR (x.kind = 'interface' AND x.signature CONTAINS 'Repository<') | x.name] AS beanNames
+    WITH all, [x IN all WHERE (x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice'])) OR (x.kind = 'interface' AND (x.signature CONTAINS 'Repository<' OR 'FeignClient' IN x.annotations)) | x.name] AS beanNames
     UNWIND all AS d
     WITH d, beanNames, last(split(coalesce(d.owner, ''), '.')) AS ownerName
     WHERE (d.kind = 'constructor' AND ownerName IN beanNames)

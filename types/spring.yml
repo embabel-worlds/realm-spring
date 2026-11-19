@@ -341,3 +341,18 @@
     createdAt: { type: int, description: "When it was asked, seconds since 1970." }
     lastActivityAt: { type: int, description: "When it last changed, seconds since 1970." }
     matchedFor: "The words it was found for."
+
+- name: SpringDocHit
+  visibility: internal
+  userAnchor: false
+  description: "A passage of Spring's own documentation (upgrade and migration guides, release notes, key reference pages) found by MEANING from free text; the matching passage is `snippet` on the RELEVANT_TO edge, with `score` and `mode`. Always narrow to this index: WHERE 'spring-docs' IN h.tags. The SpringDocs view does."
+  virtualJoins:
+    - { anchorLabel: Concept, relationship: RELEVANT_TO, via: vector, keyField: value, recordKeyField: matchedFor, producer: springDocsVector,
+        description: "Documentation close in meaning to free text: (:Concept {value:'jackson 3 migration'})-[:RELEVANT_TO]->(h:SpringDocHit) WHERE 'spring-docs' IN h.tags." }
+    - { anchorLabel: Concept, relationship: RELEVANT_TO, via: keyword, keyField: value, recordKeyField: matchedFor, producer: springDocsKeyword,
+        description: "Documentation whose words match a phrase, with via:'keyword' on the edge." }
+  properties:
+    id: { identity: true, description: "The passage's id." }
+    uri: "The page it is from."
+    title: "The page's title."
+    tags: { cardinality: LIST, description: "`spring-docs` for every passage of this index." }

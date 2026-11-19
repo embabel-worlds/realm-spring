@@ -1,0 +1,89 @@
+# EMBABEL: what an application built on the Embabel agent framework declares, read from its source
+# in Java, Kotlin or Scala. Agents and components, the actions a planner can take, the goals it can
+# reach, the conditions it tests, the tools a model may call, and the states of a workflow.
+
+- name: EmbabelModel
+  description: >-
+    SELECT THIS for "what agents does this application define", "what actions and goals does it
+    have", "which tools can the model call", "what does this agent do". Everything the project's
+    main source declares with the Embabel agent framework's annotations, one row each: an agent
+    (@Agent) or component (@EmbabelComponent) class; an action (@Action) with the types it takes
+    and the type it produces, which is what the planner chains on (`takes` is given for actions,
+    goals and conditions; a tool's parameters are in its signature); a goal (@AchievesGoal on an
+    action); a condition (@Condition); a tool a model may call (@LlmTool); a workflow state
+    (@State). Each with the class it is in, the annotation as written (description, pre and post
+    conditions, canRerun, trigger and the rest), file and line. Read from declarations; what the
+    planner would actually do at run time is not computed.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['Agent', 'EmbabelComponent', 'Action', 'AchievesGoal', 'Condition', 'LlmTool', 'State'])
+    UNWIND [a IN d.annotations WHERE a IN ['Agent', 'EmbabelComponent', 'Action', 'AchievesGoal', 'Condition', 'LlmTool', 'State']] AS annotation
+    WITH d, annotation, [t IN d.annotationText WHERE t STARTS WITH '@' + annotation][0] AS written,
+         split(split(d.signature, ') :')[0], '): ')[0] AS head
+    WITH d, annotation, written,
+         CASE WHEN annotation IN ['Action', 'AchievesGoal', 'Condition'] AND d.kind IN ['method', 'function'] AND d.signature CONTAINS '(' THEN substring(head, size(split(head, '(')[0]) + 1) ELSE '' END AS asked,
+         CASE WHEN d.kind IN ['method', 'function'] AND d.language <> 'java' AND d.signature CONTAINS '): ' THEN trim(split(last(split(d.signature, '): ')), '{')[0])
+              WHEN d.kind IN ['method', 'function'] AND d.language = 'java' AND d.signature CONTAINS '(' THEN split(trim(split(d.signature, '(')[0]), ' ')[size(split(trim(split(d.signature, '(')[0]), ' ')) - 2]
+              ELSE null END AS produces
+    RETURN DISTINCT CASE annotation WHEN 'Agent' THEN 'agent' WHEN 'EmbabelComponent' THEN 'component' WHEN 'Action' THEN 'action' WHEN 'AchievesGoal' THEN 'goal'
+                WHEN 'Condition' THEN 'condition' WHEN 'LlmTool' THEN 'tool' ELSE 'state' END AS kind,
+           d.name AS name,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN null ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN written CONTAINS 'description' AND written CONTAINS '"' THEN split(split(written, 'description')[1], '"')[1] END AS description,
+           [piece IN split(replace(asked, ')', ''), ',') WHERE trim(piece) <> '' |
+              CASE WHEN d.language <> 'java' AND piece CONTAINS ':' THEN trim(split(last(split(piece, ':')), '=')[0])
+                   ELSE split(trim(piece), ' ')[size(split(trim(piece), ' ')) - 2] END] AS takes,
+           produces, written AS declared, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY CASE kind WHEN 'agent' THEN 0 WHEN 'component' THEN 1 WHEN 'goal' THEN 2 WHEN 'action' THEN 3 WHEN 'condition' THEN 4 WHEN 'state' THEN 5 ELSE 6 END, class, line
+    LIMIT 5000
+
+- name: EmbabelChecks
+  description: >-
+    SELECT THIS for "what is wrong with our agents", "which tools will a model misuse", "review the
+    Embabel usage". Checks on a project's Embabel declarations, one row per finding with a code, a
+    severity, what was found, where, and `fix`, the change to make: a tool (@LlmTool) with no
+    description or one under 30 characters (a description built by joining strings is not measured), which a model cannot choose or call correctly; an agent
+    (@Agent) with no goal, which a planner can never finish; an agent with no description; an
+    action that produces nothing (Unit or void), which the planner cannot chain on. Read from
+    declarations in Java, Kotlin and Scala.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['Agent', 'Action', 'AchievesGoal', 'LlmTool'])
+    WITH collect(d) AS all
+    WITH all, [x IN all WHERE 'AchievesGoal' IN x.annotations | x.path + '#' + last(split(coalesce(x.owner, ''), '.'))] AS goalOwners
+    UNWIND all AS d
+    WITH d, goalOwners, reduce(t = '', x IN d.annotationText | t + ' ' + x) AS written,
+         [t IN d.annotationText WHERE t STARTS WITH '@LlmTool'][0] AS tool, [t IN d.annotationText WHERE t STARTS WITH '@Agent'][0] AS agent
+    WITH d, [f IN [
+           CASE WHEN tool IS NOT NULL AND NOT tool CONTAINS 'description' AND NOT (tool CONTAINS '(' AND trim(split(tool, '(')[1]) STARTS WITH '"')
+                THEN ['TOOL_WITHOUT_DESCRIPTION', 'warning', 'A tool with no description',
+                      'Give @LlmTool a description that says what the tool does, when to use it and what it returns. It is the only thing a model has to choose the tool by.'] END,
+           CASE WHEN tool IS NOT NULL AND tool CONTAINS 'description' AND split(tool, 'description')[1] CONTAINS '"'
+                     AND size(split(split(tool, 'description')[1], '"')) = 3 AND size(split(split(tool, 'description')[1], '"')[1]) < 30
+                THEN ['TOOL_DESCRIPTION_TOO_SHORT', 'hint', 'A tool described in ' + toString(size(split(split(tool, 'description')[1], '"')[1])) + ' characters: "' + split(split(tool, 'description')[1], '"')[1] + '"',
+                      'Lengthen the description: say what the tool does, when a model should call it, and what each argument means.'] END,
+           CASE WHEN agent IS NOT NULL AND NOT (d.path + '#' + d.name) IN goalOwners
+                THEN ['AGENT_WITHOUT_GOAL', 'warning', 'An agent none of whose actions achieves a goal',
+                      'Annotate the action that completes the agent\'s work with @AchievesGoal and a description. Without a goal a planner has nothing to plan towards.'] END,
+           CASE WHEN agent IS NOT NULL AND NOT agent CONTAINS 'description'
+                THEN ['AGENT_WITHOUT_DESCRIPTION', 'warning', 'An agent with no description',
+                      'Give @Agent a description of what the agent is for. It is how the agent is chosen for a request.'] END,
+           CASE WHEN 'Action' IN d.annotations AND d.language <> 'java' AND d.signature CONTAINS '(' AND NOT d.signature CONTAINS '): ' AND NOT written CONTAINS 'trigger'
+                THEN ['ACTION_PRODUCES_NOTHING', 'hint', 'An action that returns nothing',
+                      'Return a value of a type of its own from the action. A planner chains actions by the types they produce; an action producing nothing can only be reached by its preconditions and leads nowhere.'] END,
+           CASE WHEN 'Action' IN d.annotations AND d.language = 'java' AND d.signature CONTAINS ' void '
+                THEN ['ACTION_PRODUCES_NOTHING', 'hint', 'An action that returns nothing',
+                      'Return a value of a type of its own from the action. A planner chains actions by the types they produce; an action producing nothing can only be reached by its preconditions and leads nowhere.'] END
+         ] WHERE f IS NOT NULL] AS findings
+    UNWIND findings AS f
+    RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN null ELSE d.name END AS member,
+           f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY CASE f[1] WHEN 'warning' THEN 0 ELSE 1 END, code, path, line LIMIT 5000

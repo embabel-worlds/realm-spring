@@ -1,0 +1,38 @@
+# SPRING'S OWN DOCUMENTATION, searchable by meaning. The upgrade and migration guides and the release
+# notes for the Spring Boot lines in use today, fetched from where Spring publishes them, converted,
+# chunked and embedded by the host like any document, and tagged `spring-docs`. A page is re-read
+# only when the site says it changed. Found through SpringDocs(words): "what replaced
+# server.max-http-header-size", "how do I move from Jackson 2 to 3".
+#
+# A short, deliberate list: the pages a team upgrading or debugging actually reads. The whole
+# reference manual is thousands of pages; indexing it is a larger run and a separate decision.
+sources:
+  - name: spring-docs
+    lane: documents
+    extractEntities: false
+    from:
+      urls:
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Release-Notes
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.1-Release-Notes
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.5-Release-Notes
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide
+        - https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-2.0-Migration-Guide
+        - https://docs.spring.io/spring-boot/upgrading.html
+        - https://docs.spring.io/spring-boot/reference/features/external-config.html
+        - https://docs.spring.io/spring-boot/reference/features/profiles.html
+        - https://docs.spring.io/spring-boot/reference/actuator/endpoints.html
+        - https://docs.spring.io/spring-boot/reference/using/auto-configuration.html
+        - https://docs.spring.io/spring-boot/how-to/properties-and-configuration.html
+        - https://github.com/spring-projects/spring-framework/wiki/Upgrading-to-Spring-Framework-7.x
+        - https://github.com/spring-projects/spring-framework/wiki/Upgrading-to-Spring-Framework-6.x
+        - https://docs.spring.io/spring-security/reference/migration/index.html
+        - https://docs.spring.io/spring-security/reference/servlet/configuration/java.html
+    document:
+      url: "{{ url }}"
+      sourceKind: spring-docs
+      tags: [spring-docs]
+    sync:
+      trigger: on-install
+      schedule: "0 0 4 * * MON"
+      prune: true

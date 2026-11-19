@@ -61,3 +61,7 @@
     views: "r.view_count"
     createdAt: "r.creation_date"
     lastActivityAt: "r.last_activity_date"
+
+# Spring's documentation, as indexed by sources.yml: by meaning, and by its words.
+- { name: springDocsVector, kind: vector, index: documents, k: 24, minScore: 0.0 }
+- { name: springDocsKeyword, kind: keyword, index: documents, k: 24, minScore: 0.0 }

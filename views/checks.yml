@@ -12,7 +12,7 @@
     WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or
     component; final @Autowired fields; field injection; @Autowired on a Java class's only constructor (not Kotlin or Scala, where a secondary constructor beside a primary one needs it);
     @RequestMapping with a single method where @GetMapping and the rest say it better;
-    @Controller with @ResponseBody; @Repository on a Spring Data repository interface; public
+    @Controller with @ResponseBody; a name on @PathVariable or @RequestParam that repeats the parameter's own (Java); a controller whose mappings all share a first path segment; @Repository on a Spring Data repository interface; public
     @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on
     private methods (never applied, since the proxy cannot see them). Read from declarations and
     their annotations as written; nothing is compiled or run.
@@ -25,10 +25,18 @@
     WITH collect(d) AS all
     WITH all,
          [x IN all WHERE x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Configuration', 'SpringBootApplication', 'Component', 'Service', 'TestConfiguration', 'AutoConfiguration', 'Controller', 'RestController', 'Repository']) | x.path + '#' + x.name] AS containers,
-         [x IN all WHERE x.kind = 'constructor' | x.path + '#' + last(split(coalesce(x.owner, ''), '.'))] AS ctorOwners
+         [x IN all WHERE x.kind = 'constructor' | x.path + '#' + last(split(coalesce(x.owner, ''), '.'))] AS ctorOwners,
+         /* Each handler's first path segment, by the class it is in: what a class-level @RequestMapping would hold. */
+         [x IN all WHERE x.kind IN ['method', 'function'] AND ANY(t IN x.annotationText WHERE t CONTAINS 'Mapping' AND t CONTAINS '"/')
+            | [x.path + '#' + last(split(coalesce(x.owner, ''), '.')), split(split([t IN x.annotationText WHERE t CONTAINS 'Mapping' AND t CONTAINS '"/'][0], '"/')[1], '"')[0]]] AS handlerPaths
     UNWIND all AS d
     WITH d, containers, ctorOwners, last(split(coalesce(d.owner, ''), '.')) AS ownerName,
+         [h IN handlerPaths WHERE h[0] = d.path + '#' + d.name | split(h[1], '/')[0]] AS firstSegments,
          reduce(t = '', x IN d.annotationText | t + ' ' + x) AS written
+    WITH d, containers, ctorOwners, ownerName, written, firstSegments,
+         [name IN [piece IN tail(split(d.signature, '@PathVariable("')) | split(piece, '"')[0]] +
+                  [piece IN tail(split(d.signature, '@RequestParam("')) | split(piece, '"')[0]]
+            WHERE d.signature CONTAINS '"' + name + '") ' AND (d.signature CONTAINS ' ' + name + ',' OR d.signature CONTAINS ' ' + name + ')')] AS sameNames
     WITH d, ownerName, written,
          [f IN [
            CASE WHEN d.kind IN ['class', 'object'] AND (d.signature CONTAINS 'extends WebSecurityConfigurerAdapter' OR d.signature CONTAINS ': WebSecurityConfigurerAdapter')
@@ -49,6 +57,13 @@
            CASE WHEN d.kind IN ['method', 'function'] AND written CONTAINS '@RequestMapping' AND written CONTAINS 'RequestMethod.' AND NOT split(written, 'RequestMethod.')[1] CONTAINS 'RequestMethod.'
                 THEN ['JAVA_PRECISE_REQUEST_MAPPING', 'hint', '@RequestMapping with one HTTP method',
                       'Replace with the matching annotation: @GetMapping, @PostMapping, @PutMapping, @DeleteMapping or @PatchMapping, keeping the path and other attributes.'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND d.language = 'java' AND size(sameNames) > 0
+                THEN ['WEB_ANNOTATION_NAMES', 'hint', 'Name given to @PathVariable or @RequestParam that is the parameter\'s own name: ' + reduce(t = '', n IN sameNames | t + CASE WHEN t = '' THEN '' ELSE ', ' END + n),
+                      'Remove the name from the annotation: @PathVariable int ownerId binds by the parameter name. Keep it only where the two differ. (Needs the -parameters compiler flag, which Spring Boot\'s build plugins set.)'] END,
+           CASE WHEN d.kind IN ['class', 'object'] AND ANY(a IN d.annotations WHERE a IN ['Controller', 'RestController']) AND NOT written CONTAINS '@RequestMapping'
+                     AND size(firstSegments) >= 2 AND firstSegments[0] <> '' AND NOT firstSegments[0] CONTAINS '{' AND ALL(x IN firstSegments WHERE x = firstSegments[0])
+                THEN ['EXTRACT_REQUEST_MAPPING_PARENT_PATH', 'hint', 'All ' + toString(size(firstSegments)) + ' request mappings in this controller start with /' + firstSegments[0],
+                      'Put @RequestMapping("/' + firstSegments[0] + '") on the class and remove that prefix from each method\'s mapping.'] END,
            CASE WHEN d.kind IN ['class', 'object'] AND 'Controller' IN d.annotations AND 'ResponseBody' IN d.annotations
                 THEN ['REST_CONTROLLER_COMBINATION', 'hint', '@Controller with @ResponseBody',
                       'Replace the two annotations with @RestController.'] END,

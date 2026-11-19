@@ -30,3 +30,20 @@
     RETURN q.title AS title, q.score AS votes, q.answers AS answers, q.answered AS answered, q.views AS views,
            1970 + q.createdAt / 31557600 AS askedIn, q.url AS link
     LIMIT 10
+
+- name: SpringDocs
+  description: >-
+    SELECT THIS for "what do the Spring docs say about X", "how do I migrate X", "what replaced
+    this property". Passages of Spring's own documentation closest in meaning to the words given:
+    the Spring Boot 2.0, 3.0 and 4.0 migration guides, the 3.5, 4.0 and 4.1 release notes, the
+    upgrading guide, the Spring Framework 6 and 7 upgrade notes, Spring Security's migration and
+    configuration pages, and the reference pages on configuration, profiles, auto-configuration
+    and actuator endpoints. Each with the page it is from, its title, the passage and how close
+    it is. A short curated set, not the whole reference manual.
+  params:
+    words: { type: string, description: "What you want to know, in words." }
+  cypher: |
+    MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
+    WHERE 'spring-docs' IN h.tags
+    RETURN h.title AS title, h.uri AS page, r.snippet AS passage, r.score AS score, r.mode AS foundBy
+    ORDER BY score DESC LIMIT 8
