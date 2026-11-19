@@ -67,7 +67,8 @@
     runs outside a request". The methods the project's main source gives a job outside a web
     request, in Java, Kotlin or Scala: @Scheduled (with its cron or rate), message listeners
     (@KafkaListener, @RabbitListener, @JmsListener, @SqsListener), @EventListener and @Async, each
-    with its class, method, file and line.
+    with its class, method, file and line, and as `detail` the first value written on it: the
+    topic or queue a listener reads, or a schedule's cron expression.
   params:
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
@@ -78,5 +79,81 @@
     RETURN kind, CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
            CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN null ELSE d.name END AS method,
            [t IN d.annotationText WHERE t STARTS WITH '@' + kind][0] AS declared,
+           head([t IN d.annotationText WHERE t STARTS WITH '@' + kind AND t CONTAINS '"' | split(t, '"')[1]]) AS detail,
            d.language AS language, d.path AS path, d.line AS line, d.url AS link
     ORDER BY kind, path, line LIMIT 5000
+
+- name: OutboundHttp
+  description: >-
+    SELECT THIS for "what does this service call", "which HTTP clients does it declare", "what
+    other services does it depend on". The HTTP clients the project's main source DECLARES, in
+    Java, Kotlin or Scala: Spring HTTP interface clients (@HttpExchange on the type, @GetExchange,
+    @PostExchange and the rest on methods) and OpenFeign clients (@FeignClient, with the name or
+    URL it is given). One row per declaration: the kind, the interface, the method when it is one,
+    the path, name or URL as written, file and line. Calls made directly through RestClient,
+    WebClient or RestTemplate are not declarations and are not here.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['HttpExchange', 'GetExchange', 'PostExchange', 'PutExchange', 'DeleteExchange', 'PatchExchange', 'FeignClient'])
+    WITH d, [t IN d.annotationText WHERE t STARTS WITH '@HttpExchange' OR t STARTS WITH '@GetExchange' OR t STARTS WITH '@PostExchange' OR t STARTS WITH '@PutExchange'
+                                      OR t STARTS WITH '@DeleteExchange' OR t STARTS WITH '@PatchExchange' OR t STARTS WITH '@FeignClient'][0] AS written
+    RETURN CASE WHEN written STARTS WITH '@FeignClient' THEN 'OpenFeign client' WHEN d.kind IN ['class', 'interface', 'object'] THEN 'HTTP interface client' ELSE 'HTTP interface method' END AS kind,
+           CASE WHEN written STARTS WITH '@GetExchange' THEN 'GET' WHEN written STARTS WITH '@PostExchange' THEN 'POST' WHEN written STARTS WITH '@PutExchange' THEN 'PUT'
+                WHEN written STARTS WITH '@DeleteExchange' THEN 'DELETE' WHEN written STARTS WITH '@PatchExchange' THEN 'PATCH' ELSE '' END AS method,
+           CASE WHEN written CONTAINS '"' THEN split(written, '"')[1] ELSE '' END AS target,
+           CASE WHEN d.kind IN ['class', 'interface', 'object'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN d.kind IN ['class', 'interface', 'object'] THEN null ELSE d.name END AS member,
+           written AS declared, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY class, line LIMIT 5000
+
+- name: DataModel
+  description: >-
+    SELECT THIS for "what entities does this application persist", "which repositories exist and
+    for which entity", "what tables does it map". The persistence model the project's main source
+    declares, in Java, Kotlin or Scala: classes annotated @Entity, @Document, @Table,
+    @MappedSuperclass or @Embeddable (with the table or collection name when one is written), and
+    Spring Data repository interfaces with the entity and id types they are declared for. File
+    and line for each.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'interface', 'object']
+      AND (ANY(a IN d.annotations WHERE a IN ['Entity', 'Document', 'Table', 'MappedSuperclass', 'Embeddable', 'Node', 'RedisHash'])
+           OR (d.kind = 'interface' AND d.signature CONTAINS 'Repository<'))
+    WITH d, d.kind = 'interface' AND d.signature CONTAINS 'Repository<' AS repository,
+         [t IN d.annotationText WHERE (t STARTS WITH '@Table' OR t STARTS WITH '@Document' OR t STARTS WITH '@Entity') AND t CONTAINS '"'][0] AS named
+    RETURN CASE WHEN repository THEN 'repository' ELSE 'entity' END AS kind, d.name AS name,
+           CASE WHEN repository THEN trim(split(split(split(d.signature, 'Repository<')[1], '>')[0], ',')[0]) END AS entity,
+           CASE WHEN repository THEN split(split(d.signature, 'Repository<')[0], ' ')[size(split(split(d.signature, 'Repository<')[0], ' ')) - 1] + 'Repository'
+                ELSE [a IN d.annotations WHERE a IN ['Entity', 'Document', 'Table', 'MappedSuperclass', 'Embeddable', 'Node', 'RedisHash']][0] END AS declaredAs,
+           CASE WHEN named IS NOT NULL THEN split(named, '"')[1] END AS storedAs,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY kind, name LIMIT 5000
+
+- name: AccessRules
+  description: >-
+    SELECT THIS for "which methods are protected and by what rule", "who can call this endpoint",
+    "where is security configured". Access control the project's main source declares on code, in
+    Java, Kotlin or Scala: @PreAuthorize, @PostAuthorize, @Secured, @RolesAllowed, @PermitAll and
+    @DenyAll on methods and types, with the expression or roles as written, and the classes that
+    switch security on (@EnableWebSecurity, @EnableMethodSecurity). Rules written inside a
+    SecurityFilterChain (requestMatchers(...).permitAll()) are calls, not declarations, and are
+    not here; the classes that hold them are, as 'configuration'.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/'
+      AND ANY(a IN d.annotations WHERE a IN ['PreAuthorize', 'PostAuthorize', 'Secured', 'RolesAllowed', 'PermitAll', 'DenyAll', 'EnableWebSecurity', 'EnableMethodSecurity', 'EnableGlobalMethodSecurity', 'EnableWebFluxSecurity'])
+    WITH d, [a IN d.annotations WHERE a IN ['PreAuthorize', 'PostAuthorize', 'Secured', 'RolesAllowed', 'PermitAll', 'DenyAll', 'EnableWebSecurity', 'EnableMethodSecurity', 'EnableGlobalMethodSecurity', 'EnableWebFluxSecurity']][0] AS rule
+    WITH d, rule, [t IN d.annotationText WHERE t STARTS WITH '@' + rule][0] AS written
+    RETURN CASE WHEN rule STARTS WITH 'Enable' THEN 'configuration' ELSE 'rule' END AS kind, '@' + rule AS rule,
+           CASE WHEN rule STARTS WITH 'Enable' THEN '' WHEN written CONTAINS '(' THEN substring(written, size(split(written, '(')[0]) + 1, size(written) - size(split(written, '(')[0]) - 2) ELSE '' END AS expression,
+           CASE WHEN d.kind IN ['class', 'interface', 'object'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,
+           CASE WHEN d.kind IN ['class', 'interface', 'object'] THEN null ELSE d.name END AS member,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY kind, class, line LIMIT 5000

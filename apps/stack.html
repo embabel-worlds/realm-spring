@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -581,7 +581,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     state = Object.assign(state, { saved: false, modules: again ? state.modules : null, languages: again ? state.languages : null,
                                    nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     state.pendingNav = null;
-    if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; }
+    if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; state.wire = ''; Object.keys(state).forEach(function (k) { if (k.indexOf('app_') === 0) delete state[k]; }); }
     if (!again) Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
     state.project = key; writeHash();
     drawMine();
@@ -813,7 +813,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   function stat(k, v, n) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div><div class="n">' + esc(n) + '</div></div>'; }
 
   /* ── tabs ── */
-  var TABS = [['inbox', 'Debt inbox'], ['upgrade', 'Upgrade'], ['deps', 'Dependencies'], ['structure', 'Structure'], ['beans', 'Beans'], ['profiles', 'Profiles'], ['runtime', 'Runtime']];
+  var TABS = [['inbox', 'Debt inbox'], ['upgrade', 'Upgrade'], ['deps', 'Dependencies'], ['structure', 'Structure'], ['app', 'Application'], ['beans', 'Beans'], ['profiles', 'Profiles'], ['runtime', 'Runtime']];
   function open() { return state.findings.filter(function (f) { return !state.triage[f.id] || state.triage[f.id].status === 'snoozed' && false; }); }
   function render() {
     var openCount = state.findings.filter(function (f) { return !state.triage[f.id]; }).length;
@@ -821,7 +821,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       var c = t[0] === 'inbox' ? '<span class="count">' + openCount + '</span>' : '';
       return '<button data-tab="' + t[0] + '" class="' + (state.tab === t[0] ? 'on' : '') + '">' + t[1] + c + '</button>';
     }).join('');
-    ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, structure: renderStructure, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
+    ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, structure: renderStructure, app: renderApp, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
   }
   $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; writeHash(); render(); } });
 
@@ -1158,6 +1158,58 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (a) return go(a.dataset.nav === 'modules' ? { level: 'modules' } : { level: 'packages', module: state.nav.module });
     if (m && m.classList.contains('go')) return go({ level: 'packages', module: state.modules[Number(m.dataset.module)].module || '' });
     if (p) { var r = state['pk:' + state.nav.module][Number(p.dataset.pkg)]; go({ level: 'files', module: state.nav.module, pkg: r.package || '', set: r.sourceSet }); }
+  });
+
+  /*
+   * What the application is made of, read from its source: one section per question, each read only
+   * when it is opened.
+   */
+  function where(r) { var f = String(r.path || '').split('/').pop() + ':' + r.line; return r.link ? '<a class="mono" target="_blank" rel="noopener" href="' + esc(r.link) + '">' + esc(f) + '</a>' : '<span class="mono">' + esc(f) + '</span>'; }
+  function mono(k) { return function (r) { return '<span class="mono">' + esc(r[k]) + '</span>'; }; }
+  function member(r) { return '<span class="mono">' + esc(r['class']) + (r.handler || r.member || r.method ? '.' + esc(r.handler || r.member || r.method) : '') + '</span>'; }
+  var APP = [
+    ['endpoints', 'Endpoints', 'Endpoints', 'Reading every request mapping in the project’s Java, Kotlin and Scala source', 'HTTP endpoints this application serves, with the class prefix applied.',
+      [['method', 'Method'], ['route', 'Route', mono('route')], ['class', 'Handler', member], ['path', 'Where', where]]],
+    ['work', 'Background work', 'BackgroundWork', 'Reading scheduled jobs, message listeners, event listeners and @Async methods', 'What runs outside a web request: schedules, queue and topic listeners, application events, async methods.',
+      [['kind', 'Kind', function (r) { return '@' + esc(r.kind); }], ['detail', 'Topic, queue or schedule', mono('detail')], ['class', 'Method', member], ['path', 'Where', where]]],
+    ['tx', 'Transactions', 'TransactionalMethods', 'Reading every @Transactional declaration', 'Where transactions begin, and with what settings.',
+      [['on', 'On'], ['class', 'Declared on', member], ['readOnly', 'Read only', function (r) { return String(r.readOnly) === 'true' ? 'yes' : ''; }], ['propagation', 'Propagation'], ['path', 'Where', where]]],
+    ['outbound', 'Outbound HTTP', 'OutboundHttp', 'Reading HTTP interface clients and OpenFeign clients', 'HTTP clients this application declares. Calls made directly through RestClient, WebClient or RestTemplate are not listed.',
+      [['kind', 'Kind'], ['method', 'Method'], ['target', 'Path, name or URL', mono('target')], ['class', 'Client', member], ['path', 'Where', where]]],
+    ['data', 'Data', 'DataModel', 'Reading entities and Spring Data repositories', 'What this application persists, and the repositories declared for it.',
+      [['kind', 'Kind'], ['name', 'Name', mono('name')], ['entity', 'Entity'], ['declaredAs', 'Declared as'], ['storedAs', 'Stored as'], ['path', 'Where', where]]],
+    ['access', 'Access rules', 'AccessRules', 'Reading method security annotations and security configuration', 'Access rules written on code. Rules written inside a SecurityFilterChain are not listed; the classes that hold them are, as configuration.',
+      [['kind', 'Kind'], ['rule', 'Rule'], ['expression', 'Expression or roles', mono('expression')], ['class', 'On', member], ['path', 'Where', where]]],
+    ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type. Matched by type name; which implementation is injected is not resolved.',
+      [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
+       ['declaredHere', 'Declared in this project', function (r) { return String(r.declaredHere) === 'true' ? 'yes' : 'no'; }], ['file', 'Where', at]]]
+  ];
+  function renderApp() {
+    var cur = APP.filter(function (a) { return a[0] === (state.appSection || 'endpoints'); })[0], key = 'app_' + cur[0];
+    var picker = '<div class="chips">' + APP.map(function (a) {
+      var rows = state['app_' + a[0]];
+      return '<button data-app="' + a[0] + '" class="' + (a === cur ? 'on' : '') + '">' + esc(a[1]) + (rows ? ' <span class="count">' + num(rows.length) + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+    if (!state[key]) { waiting(key, cur[1], cur[3], function () { return view(cur[2], { project: state.project }); }); $('panel').innerHTML = picker + $('panel').innerHTML; return; }
+    var rows = state[key], shown = rows, filter = '';
+    if (cur[0] === 'wiring') {
+      var f = (state.wire || '').toLowerCase();
+      if (f) shown = rows.filter(function (r) { return state.wireExact ? String(r.type).toLowerCase() === f : String(r.type).toLowerCase().indexOf(f) >= 0 || String(r.bean).toLowerCase().indexOf(f) >= 0; });
+      var uses = {}; rows.forEach(function (r) { uses[r.type] = (uses[r.type] || 0) + 1; });
+      var top = Object.keys(uses).sort(function (x, y) { return uses[y] - uses[x]; }).slice(0, 5).map(function (t) { return '<a data-wire="' + esc(t) + '" style="cursor:pointer" class="mono">' + esc(t) + '</a> (' + num(uses[t]) + ')'; }).join(', ');
+      filter = '<div class="sub" style="margin-bottom:10px"><input id="wire" placeholder="Filter by bean or type" value="' + esc(state.wire || '') + '" style="width:260px"> ' +
+        (f ? num(shown.length) + ' of ' + num(rows.length) + (state.wireExact ? ' injection points ask for ' + esc(state.wire) + '.' : ' injection points match.') + ' <a data-wire="" style="cursor:pointer">Clear</a>' : 'Most asked for: ' + top + '.') + '</div>';
+    }
+    var langs = {}; rows.forEach(function (r) { if (r.language) langs[r.language] = (langs[r.language] || 0) + 1; });
+    var byLang = Object.keys(langs).sort(function (x, y) { return langs[y] - langs[x]; }).map(function (l) { return num(langs[l]) + ' in ' + l.charAt(0).toUpperCase() + l.slice(1); }).join(', ');
+    var cap = 500, capped = shown.length > cap;
+    $('panel').innerHTML = picker + '<div class="sub" style="margin-bottom:10px">' + esc(cur[4]) + ' ' + num(rows.length) + ' found in main source' + (byLang ? ' (' + byLang + ')' : '') + '. Test source is left out.</div>' + filter +
+      table(capped ? shown.slice(0, cap) : shown, cur[5]) + (capped ? '<div class="sub" style="margin-top:8px">The first ' + cap + ' of ' + num(shown.length) + ' are shown. Filter to narrow them.</div>' : '');
+    var w = $('wire'); if (w) w.addEventListener('change', function () { state.wire = w.value.trim(); state.wireExact = false; render(); });
+  }
+  $('panel').addEventListener('click', function (e) {
+    var a = e.target.closest('[data-app]'); if (a) { state.appSection = a.dataset.app; render(); return; }
+    var t = e.target.closest('[data-wire]'); if (t) { state.wire = t.dataset.wire; state.wireExact = !!t.dataset.wire; render(); }
   });
 
   function renderBeans() {

@@ -72,6 +72,13 @@ const FIX = {
   Beans: [{ bean: 'ApiConfig#clock', declaredBy: '@Bean method', profiles: [], conditions: [], language: 'java', module: 'shop-api', file: 'shop-api/src/main/java/ApiConfig.java', line: 9, link: null },
           { bean: 'CartController', declaredBy: '@RestController', profiles: [], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
           { bean: 'CartService', declaredBy: '@Service', profiles: ['prod'], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartService.kt', line: 8, link: null }],
+  Endpoints: [{ method: 'GET', route: '/cart', class: 'CartController', handler: 'show', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartController.kt', line: 20, link: 'https://example.test/CartController.kt#L20' },
+              { method: 'POST', route: '/cart/items', class: 'CartController', handler: 'add', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartController.kt', line: 31, link: null }],
+  BackgroundWork: [{ kind: 'KafkaListener', class: 'OrderEvents', method: 'onOrder', detail: 'orders.placed', language: 'kotlin', path: 'shop-web/src/main/kotlin/OrderEvents.kt', line: 14, link: null }],
+  TransactionalMethods: [], OutboundHttp: [], DataModel: [], AccessRules: [],
+  BeanWiring: [{ bean: 'CartController', type: 'CartService', asWritten: 'CartService', injectedBy: 'constructor', declaredHere: true, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
+               { bean: 'CartController', type: 'ObjectMapper', asWritten: 'ObjectMapper', injectedBy: 'constructor', declaredHere: false, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
+               { bean: 'CartService', type: 'Clock', asWritten: 'Clock', injectedBy: 'constructor', declaredHere: false, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartService.kt', line: 8, link: null }],
   Profiles: [{ profile: 'dev', where: 'file', what: 'application-dev.yml', file: 'shop-web/src/main/resources/application-dev.yml', line: 1, link: null }],
 };
 
@@ -233,6 +240,29 @@ try {
   console.log('a panel still being read');
   ({ page, errors } = await open(browser, 'slowBeans'));
   await finished(page);
+  console.log('application');
+  await page.click('button[data-tab="app"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('found in main source'));
+  let appText = await text(page, '#panel');
+  ok(appText.includes('2 found in main source (2 in Kotlin)') && appText.includes('/cart/items') && appText.includes('CartController.add'), 'endpoints open first: two, counted by language, with route and handler');
+  ok(await page.locator('#panel a[href="https://example.test/CartController.kt#L20"]').count() === 1, 'an endpoint with a line on the host links to it');
+  ok(!(await page.evaluate(() => window.__calls.some(c => c.startsWith('BeanWiring')))), 'no other section is read until it is opened');
+  await page.click('#panel [data-app="work"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('orders.placed'));
+  ok((await text(page, '#panel')).includes('@KafkaListener') && (await text(page, '#panel')).includes('OrderEvents.onOrder'), 'a listener shows its kind, its topic and its method');
+  await page.click('#panel [data-app="tx"]');
+  await page.waitForFunction(() => document.querySelector('#panel .empty')?.textContent.includes('None.'));
+  ok((await text(page, '#panel')).includes('0 found in main source'), 'a section with nothing says none were found');
+  await page.click('#panel [data-app="wiring"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Most asked for'));
+  ok((await text(page, '#panel')).includes('3 found in main source'), 'wiring lists three injection points');
+  await page.click('#panel td [data-wire="CartService"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('1 of 3 injection points ask for CartService'));
+  ok(await page.locator('#panel table tr').count() === 2, 'clicking a type shows only what asks for it');
+  await page.click('#panel [data-wire=""]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Most asked for'));
+  ok((await text(page, '#panel [data-app="endpoints"]')).includes('2'), 'a section already read shows its count on its button');
+
   await page.click('button[data-tab="beans"]');
   await page.waitForTimeout(1300);
   const loading = await text(page, '#panel');
