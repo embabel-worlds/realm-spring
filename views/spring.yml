@@ -57,7 +57,8 @@
     Settings in the project's application*.yml / .properties that the Spring Boot it runs does not
     bind (a typo, or a property from another version), and settings it has deprecated — checked
     against what the project's own Spring Boot jars document. Keys under the project's own
-    @ConfigurationProperties prefixes, or read by @Value, are the project's and are not flagged.
+    @ConfigurationProperties prefixes, or read as ${key} by any annotation (@Value, @Scheduled's
+    cron, a @FeignClient's url), are the project's and are not flagged.
     Downloads the project's Spring Boot jars the first time.
   params:
     project: { type: string, description: "Project key." }
@@ -70,11 +71,13 @@
     WITH p, props,
          [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | toLower(replace(replace(x.name, '-', ''), '_', ''))] AS open
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
-    WHERE cp.name = 'ConfigurationProperties' OR cp.name = 'Value'
+    WHERE cp.name = 'ConfigurationProperties' OR coalesce(cp.value, '') CONTAINS '${' OR ANY(x IN coalesce(cp.attributes, []) WHERE x CONTAINS '${')
     WITH p, props, open,
          collect(DISTINCT CASE WHEN cp.name = 'ConfigurationProperties'
                    THEN coalesce([x IN cp.attributes WHERE x STARTS WITH 'prefix=' | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
-         collect(DISTINCT CASE WHEN cp.name = 'Value' THEN split(split(split(cp.value, '${')[1], '}')[0], ':')[0] END) AS valueKeys
+         /* Every ${key} any annotation reads: @Value, and @Scheduled(cron = "${jobs.cron}"), @FeignClient(url = "${rates.url}") and the rest. */
+         reduce(acc = [], text IN collect(CASE WHEN cp.name <> 'ConfigurationProperties' THEN coalesce(cp.value, '') + reduce(t = '', x IN coalesce(cp.attributes, []) | t + ' ' + x) END)
+                | acc + [k IN split(text, '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
     MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
     WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
       AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'

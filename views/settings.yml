@@ -160,7 +160,8 @@
 - name: SettingsReadByCode
   description: >-
     The settings the project's own code binds, in Java, Kotlin or Scala: each
-    @ConfigurationProperties and @Value as written, with its file and line. A setting under one of
+    @ConfigurationProperties, and every annotation that reads a ${key} (@Value, @Scheduled's cron,
+    a @FeignClient's url and the rest), as written, with its file and line. A setting under one of
     these is the project's own and is not Spring Boot's to document. One of the three inputs of the
     configuration check.
   params:
@@ -168,7 +169,7 @@
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
-      AND ANY(a IN d.annotations WHERE a = 'ConfigurationProperties' OR a ENDS WITH ':ConfigurationProperties' OR a = 'Value' OR a ENDS WITH ':Value')
-    UNWIND [t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties' OR t CONTAINS 'Value('] AS written
+      AND ANY(t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties' OR t CONTAINS '${')
+    UNWIND [t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties' OR t CONTAINS '${'] AS written
     RETURN written, d.path AS file, d.line AS line
     LIMIT 20000
