@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","GradleStackCard","CodeChecks","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","GradleStackCard","CodeChecks","TransactionalWork","ControllersUsingRepositories","EmbabelModel","EmbabelChecks","SpringDocs","KnownIssues","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -1359,8 +1359,17 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       [['method', 'Method'], ['route', 'Route', mono('route')], ['class', 'Handler', member], ['path', 'Where', where]]],
     ['work', 'Background work', 'BackgroundWork', 'Reading scheduled jobs, message listeners, event listeners and @Async methods', 'What runs outside a web request: schedules, queue and topic listeners, application events, async methods.',
       [['kind', 'Kind', function (r) { return '@' + esc(r.kind); }], ['detail', 'Topic, queue or schedule', mono('detail')], ['class', 'Method', member], ['path', 'Where', where]]],
-    ['tx', 'Transactions', 'TransactionalMethods', 'Reading every @Transactional declaration', 'Where transactions begin, and with what settings.',
-      [['on', 'On'], ['class', 'Declared on', member], ['readOnly', 'Read only', function (r) { return String(r.readOnly) === 'true' ? 'yes' : ''; }], ['propagation', 'Propagation'], ['path', 'Where', where]]],
+    ['tx', 'Transactions', 'TransactionalWork', 'Reading every transactional method and the calls it makes', 'What each transactional method does, most calls first. Counted from calls in the method’s own body, by name: a write made further down is not seen, so “could be read-only” is a candidate to check.',
+      [['class', 'Method', member], ['calls', 'Calls'], ['writes', 'Writes', function (r) { return esc(r.writes) + (r.writeCalls && r.writeCalls.length ? ' <span class="sub mono">' + esc(r.writeCalls.slice(0, 4).join(', ')) + '</span>' : ''); }],
+       ['reads', 'Reads'], ['readOnly', 'Declared read-only', function (r) { return String(r.readOnly) === 'true' ? 'yes' : ''; }],
+       ['couldBeReadOnly', 'Could be read-only', function (r) { return String(r.couldBeReadOnly) === 'true' ? '<span class="kind">candidate</span>' : ''; }], ['path', 'Where', where]]],
+    ['layers', 'Controllers → repositories', 'ControllersUsingRepositories', 'Reading what each controller injects', 'Controllers that inject a repository directly, with no service between. Normal in a small application; usually unwanted in a layered one.',
+      [['controller', 'Controller', mono('controller')], ['repository', 'Repository', mono('repository')], ['injectedBy', 'Injected by'], ['endpoints', 'Endpoints it serves'], ['path', 'Where', where]]],
+    ['embabel', 'Embabel agents', 'EmbabelModel', 'Reading agents, actions, goals, conditions and tools', 'What the application declares with the Embabel agent framework: agents, the actions a planner can chain (by what each takes and produces), goals, conditions and the tools a model may call.',
+      [['kind', 'Kind', function (r) { return '<span class="kind">' + esc(r.kind) + '</span>'; }], ['class', 'Name', function (r) { return '<span class="mono">' + (r['class'] ? esc(r['class']) + '.' : '') + esc(r.name) + '</span>' + (r.description ? '<div class="sub" style="margin-top:3px">' + esc(r.description) + '</div>' : ''); }],
+       ['takes', 'Takes', function (r) { return '<span class="mono">' + esc((r.takes || []).join(', ')) + '</span>'; }], ['produces', 'Produces', mono('produces')], ['path', 'Where', where]]],
+    ['agentchecks', 'Agent checks', 'EmbabelChecks', 'Checking tools, agents and actions', 'Problems in the Embabel declarations, each with the change to make.',
+      [['severity', 'Severity', function (r) { return '<span class="kind">' + esc(r.severity) + '</span>'; }], ['found', 'Found', function (r) { return esc(r.found) + '<div class="sub" style="margin-top:3px">' + esc(r.fix) + '</div>'; }], ['class', 'In', member], ['path', 'Where', where]]],
     ['outbound', 'Outbound HTTP', 'OutboundHttp', 'Reading HTTP interface clients and OpenFeign clients', 'HTTP clients this application declares. Calls made directly through RestClient, WebClient or RestTemplate are not listed.',
       [['kind', 'Kind'], ['method', 'Method'], ['target', 'Path, name or URL', mono('target')], ['class', 'Client', member], ['path', 'Where', where]]],
     ['data', 'Data', 'DataModel', 'Reading entities and Spring Data repositories', 'What this application persists, and the repositories declared for it.',
@@ -1369,16 +1378,42 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       [['kind', 'Kind'], ['rule', 'Rule'], ['expression', 'Expression or roles', mono('expression')], ['class', 'On', member], ['path', 'Where', where]]],
     ['checks', 'Code checks', 'CodeChecks', 'Checking Spring usage in the project’s Java, Kotlin and Scala source', 'Spring idioms that are wrong, removed or needlessly old, each with the change to make.',
       [['severity', 'Severity', function (r) { return '<span class="kind">' + esc(r.severity) + '</span>'; }], ['found', 'Found', function (r) { return esc(r.found) + '<div class="sub" style="margin-top:3px">' + esc(r.fix) + '</div>'; }], ['class', 'In', member], ['path', 'Where', where]]],
+    ['ask', 'Ask the docs', null, '', '', []],
     ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type. Matched by type name; which implementation is injected is not resolved.',
       [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
        ['declaredHere', 'Declared in this project', function (r) { return String(r.declaredHere) === 'true' ? 'yes' : 'no'; }], ['file', 'Where', at]]]
   ];
+  /* ── ask: Spring's own documentation and its issue trackers, for whatever you type ── */
+  function renderAsk(picker) {
+    var q = state.askWords || '', a = state.askAnswer;
+    var box = '<div class="sub" style="margin-bottom:10px">Ask Spring’s documentation and its issue trackers. Type an error’s distinctive words, a property or a class name.</div>' +
+      '<div style="margin-bottom:12px"><input id="ask" placeholder="e.g. Jackson 3 ObjectMapper missing bean" value="' + esc(q) + '" style="width:420px"> <button type="button" id="askgo">Search</button></div>';
+    var body = '';
+    if (state.asking) body = '<div class="empty"><span class="spin">●</span>Searching the documentation and the issue trackers — ' + Math.round((Date.now() - state.asking) / 1000) + ' s</div>';
+    else if (a) {
+      body = '<h3 style="margin:8px 0">From Spring’s documentation</h3>' + (a.docs.error ? '<div class="note warn">' + esc(a.docs.error) + '</div>' : !a.docs.rows.length ? '<div class="empty">Nothing close in the sixteen pages indexed (migration guides, release notes, key reference pages).</div>' :
+        a.docs.rows.map(function (r) { return '<div class="sumbox"><div class="k"><a target="_blank" rel="noopener" href="' + esc(r.page) + '">' + esc(r.title) + '</a></div><div class="t">' + esc(r.passage) + '</div></div>'; }).join('')) +
+        '<h3 style="margin:14px 0 8px">Issues in the Spring projects</h3>' + (a.issues.error ? '<div class="note warn">' + esc(a.issues.error) + '</div>' : !a.issues.rows.length ? '<div class="empty">None matched. Try fewer, more distinctive words.</div>' :
+        table(a.issues.rows, [['repository', 'Project'], ['title', 'Issue', function (r) { return '<a target="_blank" rel="noopener" href="' + esc(r.link) + '">#' + esc(r.number) + ' ' + esc(r.title) + '</a>'; }], ['state', 'State'], ['milestone', 'Fixed in'], ['opened', 'Opened']]));
+    }
+    $('panel').innerHTML = picker + box + body;
+    var go = function () {
+      var words = $('ask').value.trim(); if (!words || state.asking) return;
+      state.askWords = words; state.asking = Date.now(); state.askAnswer = null; render();
+      var part = function (name) { return view(name, { words: words }).then(function (rows) { return { rows: rows }; }).catch(function (e) { return { rows: [], error: reason(e) }; }); };
+      Promise.all([part('SpringDocs'), part('KnownIssues')]).then(function (r) { state.askAnswer = { docs: r[0], issues: r[1] }; state.asking = null; render(); });
+    };
+    $('askgo').addEventListener('click', go);
+    $('ask').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+  }
+
   function renderApp() {
     var cur = APP.filter(function (a) { return a[0] === (state.appSection || 'endpoints'); })[0], key = 'app_' + cur[0];
     var picker = '<div class="chips">' + APP.map(function (a) {
       var rows = state['app_' + a[0]];
       return '<button data-app="' + a[0] + '" class="' + (a === cur ? 'on' : '') + '">' + esc(a[1]) + (rows ? ' <span class="count">' + num(rows.length) + '</span>' : '') + '</button>';
     }).join('') + '</div>';
+    if (cur[0] === 'ask') { if (state.asking) state.loading.ask = state.loading.ask || { start: state.asking, error: null, project: state.project }; else delete state.loading.ask; return renderAsk(picker); }
     if (!state[key]) { waiting(key, cur[1], cur[3], function () { return view(cur[2], { project: state.project }); }); $('panel').innerHTML = picker + $('panel').innerHTML; return; }
     var rows = state[key], shown = rows, filter = '';
     if (cur[0] === 'wiring') {

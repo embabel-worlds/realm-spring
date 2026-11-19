@@ -76,6 +76,12 @@ const FIX = {
               { method: 'POST', route: '/cart/items', class: 'CartController', handler: 'add', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartController.kt', line: 31, link: null }],
   BackgroundWork: [{ kind: 'KafkaListener', class: 'OrderEvents', method: 'onOrder', detail: 'orders.placed', language: 'kotlin', path: 'shop-web/src/main/kotlin/OrderEvents.kt', line: 14, link: null }],
   TransactionalMethods: [], OutboundHttp: [], DataModel: [], AccessRules: [],
+  TransactionalWork: [{ class: 'CartService', method: 'checkout', calls: 6, writes: 2, reads: 3, readOnly: false, couldBeReadOnly: false, writeCalls: ['save', 'deleteAll'], readCalls: ['findById'], language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 30, link: null },
+                      { class: 'CartService', method: 'total', calls: 2, writes: 0, reads: 2, readOnly: false, couldBeReadOnly: true, writeCalls: [], readCalls: ['findById', 'findAll'], language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 44, link: null }],
+  ControllersUsingRepositories: [], EmbabelChecks: [],
+  EmbabelModel: [{ kind: 'action', name: 'priceCart', class: 'CartAgent', description: null, takes: ['Cart'], produces: 'PricedCart', declared: '@Action', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartAgent.kt', line: 12, link: null }],
+  SpringDocs: [{ title: 'Spring Boot 4.0 Migration Guide', page: 'https://example.test/guide', passage: 'To use the Jackson 2 module add the following dependency.', score: 1.0, foundBy: 'fused' }],
+  KnownIssues: [{ repository: 'spring-projects/spring-boot', number: 47695, title: 'ObjectMapper bean missing', state: 'closed', milestone: '4.0.1', comments: 4, opened: '2025-10-18', closed: '2025-10-19', link: 'https://example.test/issue' }],
   GradleStackCard: [],
   CodeChecks: [{ code: 'JAVA_FINAL_AUTOWIRED_FIELD', severity: 'warning', found: '@Autowired on a final field, which cannot be injected', class: 'CartService', member: 'clock', fix: 'Remove @Autowired from the field and take the dependency as a constructor parameter that assigns it.', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 9, link: null }],
   BeanWiring: [{ bean: 'CartController', type: 'CartService', asWritten: 'CartService', injectedBy: 'constructor', declaredHere: true, language: 'kotlin', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
@@ -253,8 +259,21 @@ try {
   await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('orders.placed'));
   ok((await text(page, '#panel')).includes('@KafkaListener') && (await text(page, '#panel')).includes('OrderEvents.onOrder'), 'a listener shows its kind, its topic and its method');
   await page.click('#panel [data-app="tx"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('CartService.checkout'));
+  ok((await text(page, '#panel')).includes('candidate') && (await text(page, '#panel')).includes('save, deleteAll'), 'transactions show what each writes, and which could be read-only');
+  await page.click('#panel [data-app="layers"]');
   await page.waitForFunction(() => document.querySelector('#panel .empty')?.textContent.includes('None.'));
   ok((await text(page, '#panel')).includes('0 found in main source'), 'a section with nothing says none were found');
+  await page.click('#panel [data-app="embabel"]');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('CartAgent.priceCart'));
+  ok((await text(page, '#panel')).includes('PricedCart'), 'an Embabel action shows what it takes and produces');
+  await page.click('#panel [data-app="ask"]');
+  await page.fill('#ask', 'jackson 3');
+  await page.click('#askgo');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Issues in the Spring projects'));
+  const asked = await text(page, '#panel');
+  ok(asked.includes('To use the Jackson 2 module') && asked.includes('#47695') && asked.includes('4.0.1'), 'asking returns a passage from the docs and a matching issue with the release that fixes it');
+  ok(await page.evaluate(() => window.__calls.filter(c => c.startsWith('SpringDocs') || c.startsWith('KnownIssues')).length) === 2, 'one search of each, made only when asked');
   await page.click('#panel [data-app="checks"]');
   await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('final field'));
   ok((await text(page, '#panel')).includes('take the dependency as a constructor parameter') && (await text(page, '#panel')).includes('CartService.clock'), 'a code check shows what was found, where, and the change to make');
