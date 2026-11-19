@@ -12,8 +12,10 @@ for d in (os.path.join(ROOT, "views"), os.path.join(os.path.dirname(ROOT), "real
             views[v["name"]] = v
 page = open(APP).read()
 used = re.search(r'"views":\[([^\]]*)\]', page).group(1).replace('"', '').split(',')
+# A view this realm does not define comes from another installed realm (the code index's SearchCode); it is named, without its Cypher.
 parts = [f'<details><summary><b>{n}</b> — {html.escape(" ".join(views[n]["description"].split()))}</summary>'
-         f'<pre class="mono">{html.escape(views[n]["cypher"].rstrip())}</pre></details>' for n in used]
+         f'<pre class="mono">{html.escape(views[n]["cypher"].rstrip())}</pre></details>' if n in views else
+         f'<details><summary><b>{n}</b> — a view of another installed realm (the code index, realm-polyglot-code), used as it is.</summary></details>' for n in used]
 start = page.index('  <h3>Every view, with the Cypher that runs</h3>\n') + len('  <h3>Every view, with the Cypher that runs</h3>\n')
 end = page.index('  <h3>What an empty panel means</h3>')
 page = page[:start] + '  ' + '\n  '.join(parts) + '\n' + page[end:]
