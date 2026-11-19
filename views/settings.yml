@@ -118,3 +118,57 @@
            files, fallback, a.owner AS class, a.targetKind AS on, a.path AS path, a.line AS line, a.link AS link
     ORDER BY size(files), hasFallback, key
     LIMIT 500
+
+# The three inputs of the configuration check, each small enough for any project. The page joins
+# them itself: joined in one statement they carry every documented property across every setting,
+# which a large project cannot afford.
+
+- name: DocumentedSettings
+  description: >-
+    Every configuration property the project's Spring jars document, once each by name, with its
+    type and whether Spring Boot has deprecated it. Downloads the project's Spring jars the first
+    time. One of the three inputs of the configuration check.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
+    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
+       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
+    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
+    // A multi-module build reaches the same jar from every module: one row per property name.
+    WITH bp.name AS name, head(collect(bp)) AS bp
+    RETURN name, bp.type AS type, bp.deprecated AS deprecated, bp.deprecationLevel AS level,
+           bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement
+    LIMIT 20000
+
+- name: SettingsWritten
+  description: >-
+    Every setting the project's main resources write in application*.yml and .properties files:
+    its key, its value, its file and line. Message bundles and logging files are left out. One of
+    the three inputs of the configuration check.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
+      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
+      AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
+    RETURN s.name AS name, left(coalesce(s.value, ''), 300) AS value, s.path AS file, s.line AS line, s.link AS link
+    LIMIT 20000
+
+- name: SettingsReadByCode
+  description: >-
+    The settings the project's own code binds, in Java, Kotlin or Scala: each
+    @ConfigurationProperties and @Value as written, with its file and line. A setting under one of
+    these is the project's own and is not Spring Boot's to document. One of the three inputs of the
+    configuration check.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/'
+      AND ANY(a IN d.annotations WHERE a = 'ConfigurationProperties' OR a ENDS WITH ':ConfigurationProperties' OR a = 'Value' OR a ENDS WITH ':Value')
+    UNWIND [t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties' OR t CONTAINS 'Value('] AS written
+    RETURN written, d.path AS file, d.line AS line
+    LIMIT 20000

@@ -28,6 +28,26 @@ const FIX = {
   ModernizationFindings: [{ id: 'rule:1', severity: 'low', category: 'modernize', title: 'Field injection', detail: 'd', fix: 'f', file: 'a/src/main/java/A.java', line: 3, link: null }],
   ModernizationFindingsInCode: [{ id: 'rule:2:shop-web/src/main/kotlin/Cart.kt#Cart.repo', severity: 'medium', category: 'design', title: 'Field injection: Cart.repo', detail: 'd', fix: 'f', file: 'shop-web/src/main/kotlin/Cart.kt', line: 7, link: null }],
   VulnerableDependencies: [], VersionOverrides: [],
+  DocumentedSettings: [
+    { name: 'server.port', type: 'java.lang.Integer', deprecated: false },
+    { name: 'spring.datasource.hikari.maximum-pool-size', type: 'java.lang.Integer', deprecated: false },
+    { name: 'server.max-http-header-size', type: 'org.springframework.util.unit.DataSize', deprecated: true, level: 'error', since: '3.0.0', replacement: 'server.max-http-request-header-size' },
+    { name: 'management.endpoint.health.group', type: 'java.util.Map<java.lang.String,Group>', deprecated: false }],
+  SettingsWritten: [
+    { name: 'server.port', value: '8080', file: 'shop-web/src/main/resources/application.yml', line: 2, link: null },
+    { name: 'spring.datasource.hikari.maximumPoolSize', value: '10', file: 'shop-web/src/main/resources/application.yml', line: 5, link: null },
+    { name: 'server.max-http-header-size', value: '16KB', file: 'shop-web/src/main/resources/application.yml', line: 7, link: null },
+    { name: 'spring.jpa.open-in-veiw', value: 'false', file: 'shop-web/src/main/resources/application.yml', line: 9, link: null },
+    { name: 'shop.cart.ttl', value: '30m', file: 'shop-web/src/main/resources/application.yml', line: 11, link: null },
+    { name: 'shop.greeting', value: 'hello', file: 'shop-web/src/main/resources/application.yml', line: 12, link: null },
+    { name: 'management.endpoint.health.group.ready.include', value: 'db', file: 'shop-web/src/main/resources/application.yml', line: 14, link: null },
+    { name: 'region', value: 'eu', file: 'shop-web/src/main/resources/application.yml', line: 16, link: null },
+    { name: 'shop.url', value: 'https://${region}.example', file: 'shop-web/src/main/resources/application.yml', line: 17, link: null },
+    { name: 'acme.stray', value: 'x', file: 'shop-web/src/main/resources/application.yml', line: 19, link: null }],
+  SettingsReadByCode: [
+    { written: '@ConfigurationProperties(prefix = "shop.cart")', file: 'shop-web/src/main/kotlin/CartProperties.kt', line: 4 },
+    { written: '@Value("\\${shop.greeting:hi}")', file: 'shop-web/src/main/kotlin/Greeter.kt', line: 9 },
+    { written: '@Value("${shop.url}")', file: 'shop-api/src/main/java/Client.java', line: 12 }],
   ModuleSources: [
     { module: 'shop-core', coordinates: 'com.acme:shop-core:1.0', packaging: 'jar', name: 'core', mainFiles: 40, testFiles: 12, languages: ['java', 'kt'] },
     { module: 'shop-web', coordinates: 'com.acme:shop-web:1.0', packaging: 'jar', name: 'web', mainFiles: 25, testFiles: 9, languages: ['kt'] },
@@ -57,10 +77,7 @@ const stub = (mode) => `
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
   window.embabel = { views: { invoke: async (name, args) => {
     window.__calls.push(name + ':' + JSON.stringify(args || {}));
-    if (name === 'ConfigurationProblems') {
-      if (MODE === 'configFails') throw new Error("Stopped: building STRING values took more than the statement's work budget of 20,000,000 steps");
-      return [];
-    }
+    if (name === 'DocumentedSettings' && MODE === 'configFails') throw new Error("Stopped: building STRING values took more than the statement's work budget of 20,000,000 steps");
     if (name === 'UpgradeConfiguration') return [{ id: 'upgrade-config:x', severity: 'high', category: 'upgrade-blocker', title: 'server.max-http-header-size: removed', detail: 'd', fix: 'Rename it', file: 'a.yml', line: 2, link: null }];
     if (name === 'StackCard' && MODE === 'behind') return [Object.assign({}, FIX.StackCard[0], { bootVersion: '4.0.3', bootLine: '4.0.x', latestPatch: '4.0.9' })];
     if (name === 'MyProjects' && MODE === 'mine') return [{ key: 'https://github.com/acme/billing', name: 'acme/billing', bootVersion: '3.5.9', support: 'supported', read: 'github.com/acme/billing@abc', modules: 2, analysedAt: new Date(Date.now() - 7200000).toISOString(), failed: 0 }];
@@ -108,9 +125,16 @@ try {
   await finished(page);
   ok((await text(page, '#progress .ptop b')) === 'Done — all 6 checks completed', 'the outcome says every check completed');
   const outcome = await text(page, '#progress .outcome');
-  ok(outcome.includes('github.com/acme/shop@1915b7016b3f') && outcome.includes('4 module(s)') && outcome.includes('310 Java types'), 'and what was read: the commit, modules and types');
-  ok(outcome.includes('65 Kotlin source files') && outcome.includes('configuration check still reads Java source only'), 'a Kotlin project is told the one check that still reads Java only, with the count (40 + 25 main files)');
-  ok(await page.locator('#tabs button[data-tab="inbox"] .count').innerText() === '2', 'the inbox holds both halves of the code rules: one finding from imports, one from a Kotlin declaration');
+  ok(outcome.includes('acme/shop at commit 1915b70') && outcome.includes('4 module(s)') && outcome.includes('310 Java types'), 'and what was read, in words: the repository, the commit, modules and types');
+  ok(!outcome.includes('github.com/acme/shop@'), 'not as a raw id');
+  ok(!outcome.includes('Kotlin'), 'no warning for a Kotlin project: every check reads Kotlin now');
+  const inbox = await text(page, '#panel');
+  ok(inbox.includes('server.max-http-header-size no longer binds') && inbox.includes('Use server.max-http-request-header-size instead'), 'configuration: a removed property is flagged with its replacement');
+  ok(inbox.includes('Spring Boot binds no property spring.jpa.open-in-veiw'), 'a misspelt spring.* key is flagged');
+  ok(inbox.includes('Undocumented setting acme.stray'), 'a key nothing documents or reads is flagged');
+  ok(!inbox.includes('shop.cart.ttl') && !inbox.includes('shop.greeting') && !inbox.includes('shop.url') && !inbox.includes('Undocumented setting region'), 'keys under a @ConfigurationProperties prefix, read by @Value (Kotlin or Java) or by another setting are not');
+  ok(!inbox.includes('maximumPoolSize') && !inbox.includes('server.port') && !inbox.includes('health.group.ready'), 'a documented key in another spelling, and a key under a documented map, are not');
+  ok(await page.locator('#tabs button[data-tab="inbox"] .count').innerText() === '5', 'the inbox holds 5 findings: two from the code rules (an import, a Kotlin declaration) and three from configuration');
   ok((await text(page, '#recommend')).includes('nothing to upgrade to'), 'on the newest release, no upgrade is offered');
   ok(!(await page.evaluate(() => window.__calls)).some((c) => c.startsWith('UpgradeConfiguration')), 'and no upgrade check is run against the version it is already on');
   await page.click('button[data-tab="upgrade"]');
@@ -149,10 +173,13 @@ try {
   ok((await text(page, '#panel')).includes('2 file(s)') && (await text(page, '#panel')).includes('CartController.kt'), 'the package opens to its two files');
   ok((await page.evaluate(() => window.__calls)).some((c) => c.startsWith('PackageFiles:') && c.includes('"package":"com.acme.shop.web.cart"') && c.includes('"sourceSet":"main"')), 'asked for that package and source set');
   ok(await page.locator('#panel a[href*="Cart.kt"]').count() === 1, 'a file with a link on the host is linked; one without is plain text');
-  ok((await text(page, '#panel .crumbs')).includes('shop-web') && (await text(page, '#panel .crumbs')).includes('com.acme.shop.web.cart'), 'the trail shows project, module and package');
-  await page.click('#panel .crumbs a[data-nav="packages"]');
+  ok((await text(page, '#panel .crumbs')).includes('acme/shop at commit 1915b70') && (await text(page, '#panel .crumbs')).includes('shop-web') && (await text(page, '#panel .crumbs')).includes('com.acme.shop.web.cart'), 'the trail shows project, module and package');
+  ok(page.url().includes('module=shop-web') && page.url().includes('pkg=com.acme.shop.web.cart') && page.url().includes('tab=structure'), 'and the address holds where you are');
+  await page.reload(); await page.waitForSelector('#panel table a.mono');
+  ok((await text(page, '#panel')).includes('CartController.kt'), 'a reload opens the same package again');
+  await page.click('#panel .crumbs [data-nav="packages"]');
   ok(await page.locator('#panel tr[data-pkg]').count() === 3, 'the trail goes back to the module');
-  await page.click('#panel .crumbs a[data-nav="modules"]');
+  await page.click('#panel .crumbs [data-nav="modules"]');
   ok(await page.locator('#panel tr[data-module]').count() === 4, 'and back to the project');
   ok(await page.locator('#embabel-badge').isVisible() && (await text(page, '#embabel-badge')).trim().length > 0, 'the badge is visible and not empty');
   ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));

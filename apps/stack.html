@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -79,7 +79,7 @@
   details.samples summary{font-size:12px;margin:0 0 6px}
   .outcome{font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--dim)} .outcome b{color:var(--text)}
   .outcome .bad{color:var(--amber)}
-  .crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px} .crumbs a{cursor:pointer} .crumbs span{color:var(--dim)}
+  .crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px} .crumbs .crumb{background:none;border:0;padding:0;color:var(--blue);cursor:pointer;font:inherit} .crumbs .crumb:hover{text-decoration:underline} .crumbs span{color:var(--dim)}
   table.nav tr.go{cursor:pointer} table.nav tr.go:hover td{background:var(--surface)}
   .spin{display:inline-block;color:var(--amber);animation:pulse 1.2s infinite;margin-right:6px}
   footer{color:var(--dim);font-size:12px;margin-top:28px;line-height:1.6}
@@ -228,53 +228,28 @@ RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + t.path + &#x27;#&#x27; + t
                        THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
        r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
        t.path AS file, t.line AS line, t.url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn</pre></details>
-  <details><summary><b>ConfigurationProblems</b> — Settings in the project&#x27;s application*.yml / .properties that the Spring Boot it runs does not bind (a typo, or a property from another version), and settings it has deprecated — checked against what the project&#x27;s own Spring Boot jars document. Keys under the project&#x27;s own @ConfigurationProperties prefixes, or read by @Value, are the project&#x27;s and are not flagged. Downloads the project&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
+  <details><summary><b>DocumentedSettings</b> — Every configuration property the project&#x27;s Spring jars document, once each by name, with its type and whether Spring Boot has deprecated it. Downloads the project&#x27;s Spring jars the first time. One of the three inputs of the configuration check.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
 WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH &#x27;org.springframework&#x27; OR j.artifactId CONTAINS &#x27;spring-boot&#x27;
    OR j.artifactId CONTAINS &#x27;starter&#x27; OR j.artifactId CONTAINS &#x27;autoconfigure&#x27;)
 MATCH (j)-[:DOCUMENTS]-&gt;(bp:BootProperty)
-WITH p, collect(bp) AS props
-WITH p, props,
-     [x IN props WHERE x.type STARTS WITH &#x27;java.util.Map&#x27; OR x.type STARTS WITH &#x27;java.util.List&#x27; | toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS open
-OPTIONAL MATCH (p)-[:HAS_ANNOTATION]-&gt;(cp:JavaProjectAnnotation)
-WHERE cp.name = &#x27;ConfigurationProperties&#x27; OR cp.name = &#x27;Value&#x27;
-WITH p, props, open,
-     collect(DISTINCT CASE WHEN cp.name = &#x27;ConfigurationProperties&#x27;
-               THEN coalesce([x IN cp.attributes WHERE x STARTS WITH &#x27;prefix=&#x27; | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
-     collect(DISTINCT CASE WHEN cp.name = &#x27;Value&#x27; THEN split(split(split(cp.value, &#x27;${&#x27;)[1], &#x27;}&#x27;)[0], &#x27;:&#x27;)[0] END) AS valueKeys
-MATCH (p)-[:HAS_SETTING]-&gt;(s:ProjectSetting)
+// A multi-module build reaches the same jar from every module: one row per property name.
+WITH bp.name AS name, head(collect(bp)) AS bp
+RETURN name, bp.type AS type, bp.deprecated AS deprecated, bp.deprecationLevel AS level,
+       bp.deprecatedSince AS since, bp.deprecationReason AS reason, bp.replacement AS replacement
+LIMIT 20000</pre></details>
+  <details><summary><b>SettingsWritten</b> — Every setting the project&#x27;s main resources write in application*.yml and .properties files: its key, its value, its file and line. Message bundles and logging files are left out. One of the three inputs of the configuration check.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]-&gt;(s:ProjectSetting)
 WHERE s.path CONTAINS &#x27;src/main/resources&#x27; AND NOT s.path CONTAINS &#x27;/META-INF/&#x27;
   AND NOT s.fileName STARTS WITH &#x27;messages&#x27; AND NOT s.fileName STARTS WITH &#x27;logback&#x27; AND NOT s.fileName STARTS WITH &#x27;log4j&#x27;
   AND NOT s.fileName STARTS WITH &#x27;git.&#x27; AND NOT s.fileName STARTS WITH &#x27;ValidationMessages&#x27;
   AND NOT s.name IN [&#x27;spring.config.activate.on-profile&#x27;, &#x27;spring.profiles&#x27;]
-WITH p, props, open, ownPrefixes, valueKeys, collect(s) AS settings
-// A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
-WITH props, open, ownPrefixes, settings,
-     valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, &#x27;&#x27;), &#x27;${&#x27;)[1..] | split(split(k, &#x27;}&#x27;)[0], &#x27;:&#x27;)[0]]) AS valueKeys
-UNWIND settings AS s
-WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS ownPrefixes,
-     [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;))] AS valueKeys,
-     toLower(replace(replace(split(s.name, &#x27;[&#x27;)[0], &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) AS base
-WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, &#x27;-&#x27;, &#x27;&#x27;), &#x27;_&#x27;, &#x27;&#x27;)) = base][0] AS match
-WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + &#x27;.&#x27; OR base = x)
-  AND NOT ANY(x IN valueKeys WHERE base = x)
-  AND NOT ANY(x IN open WHERE base STARTS WITH x + &#x27;.&#x27;)
-  AND (match IS NULL OR match.deprecated)
-RETURN &#x27;config:&#x27; + s.path + &#x27;:&#x27; + toString(s.line) + &#x27;:&#x27; + s.name AS id,
-       CASE WHEN match IS NULL AND split(base, &#x27;.&#x27;)[0] IN [&#x27;spring&#x27;, &#x27;server&#x27;, &#x27;management&#x27;, &#x27;logging&#x27;, &#x27;info&#x27;, &#x27;debug&#x27;, &#x27;trace&#x27;] THEN &#x27;medium&#x27;
-            WHEN match IS NULL THEN &#x27;low&#x27; WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;high&#x27; ELSE &#x27;low&#x27; END AS severity,
-       &#x27;configuration&#x27; AS category,
-       CASE WHEN match IS NULL AND split(base, &#x27;.&#x27;)[0] IN [&#x27;spring&#x27;, &#x27;server&#x27;, &#x27;management&#x27;, &#x27;logging&#x27;, &#x27;info&#x27;, &#x27;debug&#x27;, &#x27;trace&#x27;] THEN &#x27;Spring Boot binds no property &#x27; + s.name
-            WHEN match IS NULL THEN &#x27;Undocumented setting &#x27; + s.name
-            WHEN match.deprecationLevel = &#x27;error&#x27; THEN s.name + &#x27; no longer binds&#x27;
-            ELSE s.name + &#x27; is deprecated&#x27; END AS title,
-       CASE WHEN match IS NULL THEN &#x27;No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.&#x27;
-            WHEN match.deprecationLevel = &#x27;error&#x27; THEN &#x27;Spring Boot removed it&#x27; + coalesce(&#x27; in &#x27; + match.deprecatedSince, &#x27;&#x27;) + &#x27;: the setting is silently ignored.&#x27; + coalesce(&#x27; &#x27; + match.deprecationReason, &#x27;&#x27;)
-            ELSE coalesce(match.deprecationReason, &#x27;Deprecated&#x27;) + coalesce(&#x27; (since &#x27; + match.deprecatedSince + &#x27;)&#x27;, &#x27;&#x27;) + &#x27;; it still binds, for now.&#x27; END AS detail,
-       CASE WHEN match IS NULL THEN &#x27;Check the spelling against the Spring Boot reference, or remove it.&#x27;
-            WHEN match.replacement IS NOT NULL THEN &#x27;Use &#x27; + match.replacement + &#x27; instead.&#x27;
-            ELSE &#x27;Remove it.&#x27; END AS fix,
-       s.path AS file, s.line AS line, s.link AS link
-LIMIT 500</pre></details>
+RETURN s.name AS name, left(coalesce(s.value, &#x27;&#x27;), 300) AS value, s.path AS file, s.line AS line, s.link AS link
+LIMIT 20000</pre></details>
+  <details><summary><b>SettingsReadByCode</b> — The settings the project&#x27;s own code binds, in Java, Kotlin or Scala: each @ConfigurationProperties and @Value as written, with its file and line. A setting under one of these is the project&#x27;s own and is not Spring Boot&#x27;s to document. One of the three inputs of the configuration check.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a = &#x27;ConfigurationProperties&#x27; OR a ENDS WITH &#x27;:ConfigurationProperties&#x27; OR a = &#x27;Value&#x27; OR a ENDS WITH &#x27;:Value&#x27;)
+UNWIND [t IN d.annotationText WHERE t CONTAINS &#x27;ConfigurationProperties&#x27; OR t CONTAINS &#x27;Value(&#x27;] AS written
+RETURN written, d.path AS file, d.line AS line
+LIMIT 20000</pre></details>
   <details><summary><b>UpgradeConfiguration</b> — Settings in the project that the target Spring Boot version removed or renamed, each with the property to use there — read from the target release&#x27;s own jars, which document every property they dropped with its replacement. `target` is a Spring Boot version, e.g. 3.5.16 or 4.1.2. Downloads the target&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (bom:BootBom {coordinates: &#x27;org.springframework.boot:spring-boot-dependencies:&#x27; + $target})-[:PINS]-&gt;(v:BootManagedVersion)
 WHERE v.groupId = &#x27;org.springframework.boot&#x27; AND v.artifactId STARTS WITH &#x27;spring-boot&#x27;
   AND NOT v.artifactId CONTAINS &#x27;starter&#x27; AND NOT v.artifactId CONTAINS &#x27;test&#x27; AND NOT v.artifactId ENDS WITH &#x27;-docs&#x27;
@@ -567,10 +542,8 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   /* What was read, said once the checks are over, so there is no doubt whether it worked. */
   function outcome() {
     var o = state.overview, s = state.stack, bits = [];
-    if (o) bits.push('Read <b>' + esc(o.project) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
+    if (o) bits.push('Read <b title="' + esc(o.project) + '">' + esc(projectLabel()) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
     else if (s) bits.push('Read <b>' + esc(state.project) + '</b>');
-    var k = kotlinFiles();
-    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. The configuration check still reads Java source only to learn which settings the project’s own code binds, so on this project it can flag a setting your Kotlin reads.</span>');
     return bits.length ? '<div class="outcome">' + bits.join('<br>') + '</div>' : '';
   }
   function kotlinFiles() {
@@ -590,9 +563,12 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     key = normalise(key);
     if (!key) return;
     $('project').value = key;
-    if (location.hash !== '#project=' + encodeURIComponent(key)) history.replaceState(null, '', '#project=' + encodeURIComponent(key));
-    state = Object.assign(state, { saved: false, modules: null, languages: null, nav: { level: 'modules' }, loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
-    Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
+    var again = key === state.project;   /* a second read of the same project keeps your place in it */
+    state = Object.assign(state, { saved: false, modules: again ? state.modules : null, languages: again ? state.languages : null,
+                                   nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    state.pendingNav = null;
+    if (!again) Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
+    state.project = key; writeHash();
     drawMine();
     $('report').hidden = false; steps(); renderStack(); renderMadeOf(); render();
     mark('code', 'run');
@@ -616,7 +592,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       mark('support', 'done');
       pickTarget();
       runRules('modern');
-      run('config', 'ConfigurationProblems', { project: key });
+      runConfiguration();
       run('deps', 'VulnerableDependencies', { project: key });
       run(null, 'VersionOverrides', { project: key });
       loadUpgrade();
@@ -642,6 +618,60 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     return Promise.all([half('ModernizationFindings'), half('ModernizationFindingsInCode')]).then(function () {
       if (step && key === state.project) mark(step, failure ? 'fail' : 'done', failure || '');
     });
+  }
+  /*
+   * The configuration check: settings the project writes that nothing binds, and settings Spring
+   * Boot has deprecated. Its three inputs are read as three small views and joined here. Joined in
+   * one statement they carry every documented property across every setting, and a large project
+   * ran out of the statement's work budget.
+   */
+  function squash(k) { return String(k || '').toLowerCase().replace(/[-_]/g, ''); }
+  function runConfiguration() {
+    mark('config', 'run');
+    var key = state.project, params = { project: key };
+    return Promise.all([view('DocumentedSettings', params), view('SettingsWritten', params), view('SettingsReadByCode', params)]).then(function (r) {
+      if (key !== state.project) return;
+      add(configurationFindings(r[0], r[1], r[2]));
+      mark('config', 'done', r[1].length + ' settings checked against ' + r[0].length + ' documented properties'); render();
+    }).catch(function (e) { mark('config', 'fail', reason(e)); console.warn('configuration', e); });
+  }
+  function configurationFindings(documented, written, readByCode) {
+    var known = {}, openPrefixes = [];
+    documented.forEach(function (d) {
+      var k = squash(d.name); known[k] = d;
+      if (/^java\.util\.(Map|List)/.test(d.type || '')) openPrefixes.push(k + '.');
+    });
+    var ownPrefixes = [], readKeys = {};
+    var noteKeys = function (text) { String(text || '').replace(/\\?\$\{([^}:]+)/g, function (m, k) { readKeys[squash(k)] = true; return m; }); };
+    readByCode.forEach(function (r) {
+      var w = r.written || '';
+      if (w.indexOf('ConfigurationProperties') >= 0) { var m = w.match(/"([^"]*)"/); if (m && m[1]) ownPrefixes.push(squash(m[1])); }
+      else noteKeys(w);
+    });
+    written.forEach(function (s) { noteKeys(s.value); });   // a key another setting reads as ${key} is in use
+    var FRAMEWORK = { spring: 1, server: 1, management: 1, logging: 1, info: 1, debug: 1, trace: 1 };
+    var out = [];
+    written.forEach(function (s) {
+      var base = squash(String(s.name).split('[')[0]);
+      if (readKeys[base]) return;
+      if (ownPrefixes.some(function (p) { return base === p || base.indexOf(p + '.') === 0; })) return;
+      if (openPrefixes.some(function (p) { return base.indexOf(p) === 0; })) return;
+      var d = known[base];
+      if (d && !d.deprecated) return;
+      var framework = FRAMEWORK[base.split('.')[0]], removed = d && d.level === 'error';
+      out.push({
+        id: 'config:' + s.file + ':' + s.line + ':' + s.name,
+        severity: !d ? (framework ? 'medium' : 'low') : removed ? 'high' : 'low',
+        category: 'configuration',
+        title: !d ? (framework ? 'Spring Boot binds no property ' + s.name : 'Undocumented setting ' + s.name) : removed ? s.name + ' no longer binds' : s.name + ' is deprecated',
+        detail: !d ? 'No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.'
+          : removed ? 'Spring Boot removed it' + (d.since ? ' in ' + d.since : '') + ': the setting is silently ignored.' + (d.reason ? ' ' + d.reason : '')
+          : (d.reason || 'Deprecated') + (d.since ? ' (since ' + d.since + ')' : '') + '; it still binds, for now.',
+        fix: !d ? 'Check the spelling against the Spring Boot reference, or remove it.' : d.replacement ? 'Use ' + d.replacement + ' instead.' : 'Remove it.',
+        file: s.file, line: s.line, link: s.link
+      });
+    });
+    return out;
   }
   function run(step, name, params) {
     if (step) mark(step, 'run');
@@ -778,7 +808,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     }).join('');
     ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, structure: renderStructure, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
   }
-  $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
+  $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; writeHash(); render(); } });
 
   function bySeverity(a, b) { return SEV.indexOf(a.severity) - SEV.indexOf(b.severity) || String(a.title).localeCompare(String(b.title)); }
   function item(f, decided) {
@@ -905,16 +935,28 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       $('retry').addEventListener('click', function () { delete state.loading[key]; render(); });
       return;
     }
-    $('panel').innerHTML = '<div class="empty"><span class="spin">●</span>' + esc(doing) + ' — ' + Math.round((Date.now() - w.start) / 1000) + ' s</div>';
+    $('panel').innerHTML = (state.tab === 'structure' ? crumbs() : '') + '<div class="empty"><span class="spin">●</span>' + esc(doing) + ' — ' + Math.round((Date.now() - w.start) / 1000) + ' s</div>';
   }
   setInterval(function () { if (Object.keys(state.loading).some(function (k) { return !state.loading[k].error; })) render(); }, 1000);
 
   /* ── structure: project → module → package → file ── */
-  function go(nav) { state.nav = nav; render(); }
+  /* Where you are in the structure is kept in the address, so a reload or a second read of the project keeps it. */
+  function go(nav) { state.nav = nav; writeHash(); render(); }
+  function writeHash() {
+    var n = state.nav, h = '#project=' + encodeURIComponent(state.project) + (state.tab !== 'inbox' ? '&tab=' + state.tab : '') +
+      (n.level !== 'modules' ? '&module=' + encodeURIComponent(n.module || '') : '') +
+      (n.level === 'files' ? '&pkg=' + encodeURIComponent(n.pkg || '') + '&set=' + encodeURIComponent(n.set || 'main') : '');
+    if (location.hash !== h) history.replaceState(null, '', h);
+  }
+  /* The project as it was read, in words: `embabel/me at commit 8a38811`, not the raw id. */
+  function projectLabel() {
+    var read = (state.overview && state.overview.project) || state.project, m = String(read).match(/^(?:https?:\/\/)?[^/]+\/(.+?)@([0-9a-f]{7,40})$/);
+    return m ? m[1] + ' at commit ' + m[2].slice(0, 7) : String(read).replace(/^https?:\/\/[^/]+\//, '');
+  }
   function crumbs() {
-    var n = state.nav, name = (state.overview && state.overview.project) || state.project, out = [];
-    out.push(n.level === 'modules' ? '<b>' + esc(name) + '</b>' : '<a data-nav="modules">' + esc(name) + '</a>');
-    if (n.level !== 'modules') out.push(n.level === 'packages' ? '<b>' + esc(n.module || '(root)') + '</b>' : '<a data-nav="packages">' + esc(n.module || '(root)') + '</a>');
+    var n = state.nav, name = projectLabel(), out = [];
+    out.push(n.level === 'modules' ? '<b>' + esc(name) + '</b>' : '<button type="button" class="crumb" data-nav="modules">' + esc(name) + '</button>');
+    if (n.level !== 'modules') out.push(n.level === 'packages' ? '<b>' + esc(n.module || '(root)') + '</b>' : '<button type="button" class="crumb" data-nav="packages">' + esc(n.module || '(root)') + '</button>');
     if (n.level === 'files') out.push('<b>' + esc(n.pkg || '(default package)') + '</b> <span>' + esc(n.set) + '</span>');
     return '<div class="crumbs">' + out.join('<span>›</span>') + '</div>';
   }
@@ -949,7 +991,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
   $('panel').addEventListener('click', function (e) {
     if (state.tab !== 'structure') return;
-    var a = e.target.closest('a[data-nav]'), m = e.target.closest('tr[data-module]'), p = e.target.closest('tr[data-pkg]');
+    var a = e.target.closest('[data-nav]'), m = e.target.closest('tr[data-module]'), p = e.target.closest('tr[data-pkg]');
     if (a) return go(a.dataset.nav === 'modules' ? { level: 'modules' } : { level: 'packages', module: state.nav.module });
     if (m && m.classList.contains('go')) return go({ level: 'packages', module: state.modules[Number(m.dataset.module)].module || '' });
     if (p) { var r = state['pk:' + state.nav.module][Number(p.dataset.pkg)]; go({ level: 'files', module: state.nav.module, pkg: r.package || '', set: r.sourceSet }); }
@@ -1031,8 +1073,12 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   $('samples').addEventListener('click', function (e) { var b = e.target.closest('button[data-sample]'); if (b) analyze(SAMPLES[Number(b.dataset.sample)].key); });
   $('form').addEventListener('submit', function (e) { e.preventDefault(); analyze($('project').value); });
   function fromHash() {
-    var m = location.hash.match(/^#project=(.+)$/);
-    if (m) { var key = decodeURIComponent(m[1]); if (key !== state.project && key.length < 400) analyze(key); }
+    var q = {}; location.hash.replace(/^#/, '').split('&').forEach(function (kv) { var i = kv.indexOf('='); if (i > 0) q[kv.slice(0, i)] = decodeURIComponent(kv.slice(i + 1)); });
+    if (!q.project || q.project.length >= 400) return;
+    var nav = q.pkg != null ? { level: 'files', module: q.module || '', pkg: q.pkg, set: q.set || 'main' } : q.module != null ? { level: 'packages', module: q.module } : { level: 'modules' };
+    if (q.tab && TABS.some(function (t) { return t[0] === q.tab; })) state.tab = q.tab;
+    if (q.project !== state.project) { state.pendingNav = nav; analyze(q.project); }
+    else if (JSON.stringify(nav) !== JSON.stringify(state.nav)) { state.nav = nav; render(); }
   }
   addEventListener('hashchange', fromHash);
   if (embabel.manifest && embabel.manifest.ready) embabel.manifest.ready.then(fromHash).catch(fromHash); else fromHash();
