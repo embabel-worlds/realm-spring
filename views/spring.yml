@@ -78,16 +78,19 @@
     // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
     WITH props, open, ownPrefixes, settings,
          valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, ''), '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
-    WITH props, open, settings,
+    // Likewise the prefixes: `x + '.'` built inside the per-setting test is one string per setting
+    // per prefix. Built once here, the test below only compares.
+    WITH props, settings, [x IN open | x + '.'] AS openDot,
          [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
          [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
+    WITH props, settings, openDot, ownPrefixes, valueKeys, [x IN ownPrefixes | x + '.'] AS ownDot
     UNWIND settings AS s
-    WITH s, props, open, ownPrefixes, valueKeys,
+    WITH s, props, openDot, ownPrefixes, ownDot, valueKeys,
          toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
-    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE x.k = base][0].p AS match
-    WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
-      AND NOT ANY(x IN valueKeys WHERE base = x)
-      AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
+    WITH s, base, [x IN props WHERE x.k = base][0].p AS match, ownPrefixes, ownDot, valueKeys, openDot
+    WHERE NOT base IN ownPrefixes AND NOT ANY(x IN ownDot WHERE base STARTS WITH x)
+      AND NOT base IN valueKeys
+      AND NOT ANY(x IN openDot WHERE base STARTS WITH x)
       AND (match IS NULL OR match.deprecated)
     RETURN 'config:' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
            CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'medium'
