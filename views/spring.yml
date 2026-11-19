@@ -58,9 +58,11 @@
     WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
        OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
     MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
-    WITH p, collect(bp) AS props
+    // Each documented property is normalised ONCE here. Normalising it again for every setting is
+    // settings × properties strings, which a large project cannot afford.
+    WITH p, collect({k: toLower(replace(replace(bp.name, '-', ''), '_', '')), p: bp}) AS props
     WITH p, props,
-         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | toLower(replace(replace(x.name, '-', ''), '_', ''))] AS open
+         [x IN props WHERE x.p.type STARTS WITH 'java.util.Map' OR x.p.type STARTS WITH 'java.util.List' | x.k] AS open
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
     WHERE cp.name = 'ConfigurationProperties' OR cp.name = 'Value'
     WITH p, props, open,
@@ -76,11 +78,13 @@
     // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
     WITH props, open, ownPrefixes, settings,
          valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, ''), '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
+    WITH props, open, settings,
+         [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
+         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
     UNWIND settings AS s
-    WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
-         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys,
+    WITH s, props, open, ownPrefixes, valueKeys,
          toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
-    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = base][0] AS match
+    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE x.k = base][0].p AS match
     WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
       AND NOT ANY(x IN valueKeys WHERE base = x)
       AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
@@ -241,3 +245,13 @@
     MATCH (t:SpringTriage {project: $project})
     RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
     LIMIT 2000
+
+- name: MyProjects
+  description: >-
+    The projects analyzed on the Spring Stack page, most recently read first, with the Spring Boot
+    version and outcome of the last read.
+  cypher: |
+    MATCH (p:SpringProject)
+    RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
+           p.modules AS modules, p.analysedAt AS analysedAt, p.failed AS failed
+    ORDER BY analysedAt DESC LIMIT 200

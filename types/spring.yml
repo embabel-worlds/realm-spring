@@ -243,3 +243,17 @@
     status: "done, snoozed or wontfix."
     title: "The finding's title when it was decided, so the decision reads on its own."
     note: "Why."
+
+# The projects you have analyzed, so the page can list yours first. Only the key and what the last
+# read found are kept; nothing of the project's code is.
+- name: SpringProject
+  description: "A project someone analyzed on the Spring Stack page: its key, and what the last read found. Kept so the page lists your projects; removed when you remove it there."
+  properties:
+    key: { identity: true, description: "The project key, as entered: a repository URL, optionally @ref, or a folder." }
+    name: "A short name for it: owner/repo, or the folder."
+    bootVersion: "The Spring Boot version the last read found; empty when none."
+    support: "supported, commercial-only, unsupported or unknown, at the last read."
+    read: "What was read: host/repo@commit, or the folder."
+    modules: { type: int, description: "Maven modules at the last read." }
+    analysedAt: "When it was last read, ISO-8601."
+    failed: { type: int, description: "How many of the page's checks could not complete at the last read." }
