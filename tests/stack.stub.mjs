@@ -39,6 +39,10 @@ const FIX = {
   PackageFiles: [
     { file: 'Cart.kt', language: 'kt', path: 'shop-web/src/main/kotlin/com/acme/shop/web/cart/Cart.kt', link: 'https://github.com/acme/shop/blob/1915b70/shop-web/src/main/kotlin/com/acme/shop/web/cart/Cart.kt' },
     { file: 'CartController.kt', language: 'kt', path: 'shop-web/src/main/kotlin/com/acme/shop/web/cart/CartController.kt', link: null }],
+  ProjectLanguages: [
+    { extension: 'kt', files: 60, mainFiles: 45, testFiles: 15, modules: 2 }, { extension: 'java', files: 30, mainFiles: 24, testFiles: 6, modules: 2 },
+    { extension: 'ts', files: 10, mainFiles: 0, testFiles: 0, modules: 1 }, { extension: 'yml', files: 12, mainFiles: 4, testFiles: 2, modules: 3 },
+    { extension: 'zzz', files: 99, mainFiles: 0, testFiles: 0, modules: 1 }],
   Beans: [{ bean: 'com.acme.shop.api.ApiConfig.clock', declaredBy: '@Bean method', profiles: [], conditions: [], module: 'shop-api', file: 'shop-api/src/main/java/ApiConfig.java', line: 9, link: null }],
   Profiles: [{ profile: 'dev', where: 'file', what: 'application-dev.yml', file: 'shop-web/src/main/resources/application-dev.yml', line: 1, link: null }],
 };
@@ -108,6 +112,15 @@ try {
   await page.click('button[data-tab="upgrade"]');
   ok((await text(page, '#panel')).includes('newest supported release'), 'the Upgrade tab says so instead of offering 4.1.2 → 4.1.2');
   ok(await page.locator('#target').count() === 0, 'with no target to choose');
+
+  console.log('what the project is made of');
+  const made = await text(page, '#madeof');
+  ok(made.includes('4') && made.includes('3 with source'), 'modules: four, three with source, as the fixture has');
+  ok(/CODE FILES\s*100/i.test(made) && made.includes('in 3 language(s)'), 'code files: 60 Kotlin + 30 Java + 10 TypeScript = 100, in three languages');
+  ok(made.includes('Kotlin') && made.includes('60% of code files'), 'the main language and its share');
+  ok(made.includes('60 files') && made.includes('(45 main, 15 test)'), 'each language with its files, main and test');
+  ok(made.includes('Also: YAML 12') && !made.includes('zzz') && !made.includes('99'), 'configuration formats are listed apart, and an unknown extension is not called a language');
+  ok(await page.locator('#madeof .langbar i').count() === 3, 'one bar segment per language');
 
   console.log('your projects');
   const writes = await page.evaluate(() => window.__writes);
