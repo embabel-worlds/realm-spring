@@ -369,30 +369,76 @@ RETURN bootVersion, frameworkVersion, line + &#x27;.x&#x27; AS bootLine,
             ELSE &#x27;unsupported&#x27; END AS support,
        myCycle.supportedJavaVersions AS javaVersions, myCycle.latest AS latestPatch,
        newest.name AS newestLine, newest.ossSupportEndDate AS newestSupportEnds</pre></details>
-  <details><summary><b>CodeChecks</b> — SELECT THIS for &quot;what is wrong with this Spring code&quot;, &quot;review the Spring usage&quot;, &quot;what should be cleaned up before upgrading&quot;. Checks over the project&#x27;s main source in Java, Kotlin and Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong or risky; hint: needlessly old style), what was found, the class and member, file and line, and `fix`, the change to make. Covers: classes extending the removed WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or component; final @Autowired fields; field injection; @Autowired on a Java class&#x27;s only constructor (not Kotlin or Scala, where a secondary constructor beside a primary one needs it); @RequestMapping with a single method where @GetMapping and the rest say it better; @Controller with @ResponseBody; a name on @PathVariable or @RequestParam that repeats the parameter&#x27;s own (Java); a controller whose mappings all share a first path segment; @Repository on a Spring Data repository interface; public @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on private methods (never applied, since the proxy cannot see them). Read from declarations and their annotations as written; nothing is compiled or run.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
-WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;, &#x27;function&#x27;]
+  <details><summary><b>CodeChecks</b> — SELECT THIS for &quot;what is wrong with this Spring code&quot;, &quot;review the Spring usage&quot;, &quot;what should be cleaned up before upgrading&quot;. Checks over the project&#x27;s main source in Java, Kotlin and Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong or risky; hint: needlessly old style), what was found, the class and member, file and line, and `fix`, the change to make. Covers: classes extending the removed WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or component; final @Autowired fields; field injection; @Autowired on a Java class&#x27;s only constructor (not Kotlin or Scala, where a secondary constructor beside a primary one needs it); @RequestMapping with a single method where @GetMapping and the rest say it better; @Controller with @ResponseBody; a name on @PathVariable or @RequestParam that repeats the parameter&#x27;s own (Java); a controller whose mappings all share a first path segment; @Repository on a Spring Data repository interface; public @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on private methods (never applied, since the proxy cannot see them); a @Query that writes without @Modifying; SELECT * in a JPQL @Query; a @Value placeholder never closed, or a setting&#x27;s name given without ${}; injection into a static field; @Scheduled methods with parameters; @Async methods returning a plain value; private or final @Bean methods in a proxied @Configuration; a @PathVariable the path does not have; @ExtendWith(SpringExtension) beside a Spring test annotation; and Spring Security calls in Java that version 6 removed (antMatchers and the like) or version 7 removes (authorizeRequests, and(), the non-lambda form). Read from declarations, annotations and calls as written; nothing is compiled or run.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE (NOT d.path CONTAINS &#x27;src/test/&#x27; OR (d.kind = &#x27;class&#x27; AND &#x27;ExtendWith&#x27; IN d.annotations)) AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;, &#x27;function&#x27;]
   AND (size(d.annotations) &gt; 0 OR d.signature CONTAINS &#x27;WebSecurityConfigurerAdapter&#x27; OR d.kind = &#x27;constructor&#x27;)
 WITH collect(d) AS all
 WITH all,
      [x IN all WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Configuration&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;TestConfiguration&#x27;, &#x27;AutoConfiguration&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Repository&#x27;]) | x.path + &#x27;#&#x27; + x.name] AS containers,
+     /* Configuration classes whose @Bean methods are proxied, so must be overridable. */
+     [x IN all WHERE x.kind = &#x27;class&#x27; AND ANY(t IN x.annotationText WHERE (t STARTS WITH &#x27;@Configuration&#x27; OR t STARTS WITH &#x27;@SpringBootApplication&#x27;) AND NOT replace(t, &#x27; &#x27;, &#x27;&#x27;) CONTAINS &#x27;proxyBeanMethods=false&#x27;) | x.path + &#x27;#&#x27; + x.name] AS proxied,
+     /* Classes whose own mapping has a path variable, which any handler in them may bind. */
+     [x IN all WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND ANY(t IN x.annotationText WHERE t CONTAINS &#x27;Mapping&#x27; AND t CONTAINS &#x27;{&#x27;) | x.path + &#x27;#&#x27; + x.name] AS classVars,
      [x IN all WHERE x.kind = &#x27;constructor&#x27; | x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;))] AS ctorOwners,
      /* Each handler&#x27;s first path segment, by the class it is in: what a class-level @RequestMapping would hold. */
      [x IN all WHERE x.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND ANY(t IN x.annotationText WHERE t CONTAINS &#x27;Mapping&#x27; AND t CONTAINS &#x27;&quot;/&#x27;)
         | [x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;)), split(split([t IN x.annotationText WHERE t CONTAINS &#x27;Mapping&#x27; AND t CONTAINS &#x27;&quot;/&#x27;][0], &#x27;&quot;/&#x27;)[1], &#x27;&quot;&#x27;)[0]]] AS handlerPaths
 UNWIND all AS d
-WITH d, containers, ctorOwners, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName,
-     [h IN handlerPaths WHERE h[0] = d.path + &#x27;#&#x27; + d.name | split(h[1], &#x27;/&#x27;)[0]] AS firstSegments,
+/* Each declaration&#x27;s two keys are built once here: built inside a comparison they are built again for every element compared. */
+WITH d, containers, ctorOwners, proxied, classVars, handlerPaths, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName, d.path + &#x27;#&#x27; + d.name AS selfKey
+WITH d, containers, ctorOwners, proxied, classVars, ownerName, d.path + &#x27;#&#x27; + ownerName AS ownerKey,
+     CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN d.annotations WHERE a IN [&#x27;Controller&#x27;, &#x27;RestController&#x27;])
+          THEN [h IN handlerPaths WHERE h[0] = selfKey | split(h[1], &#x27;/&#x27;)[0]] ELSE [] END AS firstSegments,
      reduce(t = &#x27;&#x27;, x IN d.annotationText | t + &#x27; &#x27; + x) AS written
-WITH d, containers, ctorOwners, ownerName, written, firstSegments,
+WITH d, containers, ctorOwners, proxied, classVars, ownerName, ownerKey, written, firstSegments,
+     replace(coalesce([t IN d.annotationText WHERE t STARTS WITH &#x27;@Query&#x27;][0], &#x27;&#x27;), &#x27;&quot;&quot;&quot;&#x27;, &#x27;&quot;&#x27;) AS query,
+     coalesce(split(coalesce([t IN d.annotationText WHERE t STARTS WITH &#x27;@Value(&#x27; AND t CONTAINS &#x27;&quot;&#x27;][0], &#x27;&#x27;), &#x27;&quot;&#x27;)[1], &#x27;&#x27;) AS valueText,
+     [piece IN tail(split(d.signature, &#x27;@PathVariable(&quot;&#x27;)) | split(piece, &#x27;&quot;&#x27;)[0]] AS pathNames,
      [name IN [piece IN tail(split(d.signature, &#x27;@PathVariable(&quot;&#x27;)) | split(piece, &#x27;&quot;&#x27;)[0]] +
               [piece IN tail(split(d.signature, &#x27;@RequestParam(&quot;&#x27;)) | split(piece, &#x27;&quot;&#x27;)[0]]
         WHERE d.signature CONTAINS &#x27;&quot;&#x27; + name + &#x27;&quot;) &#x27; AND (d.signature CONTAINS &#x27; &#x27; + name + &#x27;,&#x27; OR d.signature CONTAINS &#x27; &#x27; + name + &#x27;)&#x27;)] AS sameNames
+WITH d, ownerName, ownerKey, written, containers, ctorOwners, proxied, firstSegments, sameNames, valueText,
+     toLower(trim(coalesce(split(query, &#x27;&quot;&#x27;)[1], &#x27;&#x27;))) AS queryText, replace(query, &#x27; &#x27;, &#x27;&#x27;) CONTAINS &#x27;nativeQuery=true&#x27; AS nativeQuery,
+     [n IN pathNames WHERE written CONTAINS &#x27;Mapping&#x27; AND NOT written CONTAINS &#x27;{&#x27; + n AND NOT written CONTAINS &#x27;{*&#x27; + n AND NOT ownerKey IN classVars] AS strayNames
 WITH d, ownerName, written,
      [f IN [
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND ANY(v IN [&#x27;update &#x27;, &#x27;delete &#x27;, &#x27;insert &#x27;] WHERE queryText STARTS WITH v) AND NOT &#x27;Modifying&#x27; IN d.annotations
+            THEN [&#x27;QUERY_WITHOUT_MODIFYING&#x27;, &#x27;error&#x27;, &#x27;@Query that writes (&#x27; + split(queryText, &#x27; &#x27;)[0] + &#x27;) without @Modifying, which fails when called&#x27;,
+                  &#x27;Add @Modifying to the method, and make sure it runs in a transaction (@Transactional on the method or its caller). The method should return void, int or Integer.&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND NOT nativeQuery AND replace(queryText, &#x27;  &#x27;, &#x27; &#x27;) STARTS WITH &#x27;select * &#x27;
+            THEN [&#x27;JPQL_SELECT_STAR&#x27;, &#x27;error&#x27;, &#x27;@Query uses SELECT *, which is SQL and not JPQL, so the repository fails to start&#x27;,
+                  &#x27;Either select the entity by its alias (select e from Entity e ...), or add nativeQuery = true if this is meant to be SQL against the table.&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;field&#x27;, &#x27;method&#x27;, &#x27;function&#x27;, &#x27;constructor&#x27;] AND valueText CONTAINS &#x27;${&#x27; AND NOT valueText CONTAINS &#x27;}&#x27;
+            THEN [&#x27;PROPERTY_PLACEHOLDER_SYNTAX&#x27;, &#x27;error&#x27;, &#x27;@Value(&quot;&#x27; + valueText + &#x27;&quot;) opens a placeholder and never closes it&#x27;,
+                  &#x27;Close the placeholder with }: @Value(&quot;${some.key}&quot;) or, with a default, @Value(&quot;${some.key:default}&quot;).&#x27;] END,
+       CASE WHEN d.kind = &#x27;field&#x27; AND valueText &lt;&gt; &#x27;&#x27; AND NOT valueText CONTAINS &#x27;{&#x27; AND valueText CONTAINS &#x27;.&#x27; AND valueText = toLower(valueText)
+                 AND NOT ANY(c IN [&#x27; &#x27;, &#x27;/&#x27;, &#x27;:&#x27;, &#x27;@&#x27;, &#x27;*&#x27;, &#x27;,&#x27;, &#x27;..&#x27;] WHERE valueText CONTAINS c) AND NOT valueText STARTS WITH &#x27;.&#x27; AND NOT valueText ENDS WITH &#x27;.&#x27;
+            THEN [&#x27;VALUE_WITHOUT_PLACEHOLDER&#x27;, &#x27;warning&#x27;, &#x27;@Value(&quot;&#x27; + valueText + &#x27;&quot;) injects that literal text, not the setting of that name&#x27;,
+                  &#x27;If the setting is meant, write @Value(&quot;${&#x27; + valueText + &#x27;}&quot;). If the literal text is meant, a constant says so more clearly.&#x27;] END,
+       CASE WHEN d.kind = &#x27;field&#x27; AND d.language = &#x27;java&#x27; AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Value&#x27;, &#x27;Inject&#x27;]) AND (d.signature CONTAINS &#x27; static &#x27; OR d.signature STARTS WITH &#x27;static &#x27;)
+            THEN [&#x27;INJECTION_INTO_STATIC_FIELD&#x27;, &#x27;warning&#x27;, &#x27;@&#x27; + [a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Value&#x27;, &#x27;Inject&#x27;]][0] + &#x27; on a static field, which Spring does not inject&#x27;,
+                  &#x27;Make the field an instance field and take the value through the constructor. If static access is really needed, assign it from an instance setter or @PostConstruct, knowing it is null until the bean is created.&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND &#x27;Scheduled&#x27; IN d.annotations AND NOT replace(d.signature, &#x27; &#x27;, &#x27;&#x27;) CONTAINS d.name + &#x27;()&#x27;
+            THEN [&#x27;SCHEDULED_METHOD_WITH_PARAMETERS&#x27;, &#x27;error&#x27;, &#x27;@Scheduled method takes parameters, so the application fails to start&#x27;,
+                  &#x27;A scheduled method must take no arguments. Remove the parameters and read what it needs from the bean\&#x27;s fields.&#x27;] END,
+       CASE WHEN d.kind = &#x27;method&#x27; AND d.language = &#x27;java&#x27; AND &#x27;Async&#x27; IN d.annotations AND NOT d.signature CONTAINS &#x27;void &#x27; AND NOT d.signature CONTAINS &#x27;Future&#x27;
+            THEN [&#x27;ASYNC_RETURN_TYPE&#x27;, &#x27;warning&#x27;, &#x27;@Async method returns a plain value, which the caller always receives as null&#x27;,
+                  &#x27;Return void, or CompletableFuture&lt;T&gt; completed with the value (CompletableFuture.completedFuture(value)), so the caller can wait for it.&#x27;] END,
+       CASE WHEN d.kind = &#x27;method&#x27; AND d.language = &#x27;java&#x27; AND &#x27;Bean&#x27; IN d.annotations AND ownerKey IN proxied AND NOT d.signature CONTAINS &#x27;static &#x27;
+                 AND (d.signature STARTS WITH &#x27;private &#x27; OR d.signature CONTAINS &#x27;final &#x27; AND split(d.signature, &#x27;(&#x27;)[0] CONTAINS &#x27;final &#x27;)
+            THEN [&#x27;BEAN_METHOD_NOT_OVERRIDABLE&#x27;, &#x27;error&#x27;, &#x27;private or final @Bean method in a @Configuration class, which Spring rejects at startup&#x27;,
+                  &#x27;Remove private or final from the method. Or, if its @Bean methods do not call each other, put proxyBeanMethods = false on the @Configuration.&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND size(strayNames) &gt; 0
+            THEN [&#x27;PATH_VARIABLE_NOT_IN_PATH&#x27;, &#x27;warning&#x27;, &#x27;@PathVariable(&quot;&#x27; + strayNames[0] + &#x27;&quot;) names a variable that the mapping\&#x27;s path does not have&#x27;,
+                  &#x27;Make the two agree: either name the path segment {&#x27; + strayNames[0] + &#x27;} in the mapping, or change the annotation to the name the path uses. As written the request fails with a missing path variable.&#x27;] END,
+       CASE WHEN d.kind = &#x27;class&#x27; AND d.path CONTAINS &#x27;src/test/&#x27; AND ANY(t IN d.annotationText WHERE t STARTS WITH &#x27;@ExtendWith&#x27; AND t CONTAINS &#x27;SpringExtension&#x27;)
+                 AND ANY(a IN d.annotations WHERE a IN [&#x27;SpringBootTest&#x27;, &#x27;WebMvcTest&#x27;, &#x27;WebFluxTest&#x27;, &#x27;DataJpaTest&#x27;, &#x27;DataJdbcTest&#x27;, &#x27;JdbcTest&#x27;, &#x27;JsonTest&#x27;, &#x27;RestClientTest&#x27;, &#x27;DataMongoTest&#x27;, &#x27;DataRedisTest&#x27;, &#x27;SpringJUnitConfig&#x27;, &#x27;SpringJUnitWebConfig&#x27;])
+            THEN [&#x27;JAVA_TEST_SPRING_EXTENSION&#x27;, &#x27;hint&#x27;, &#x27;@ExtendWith(SpringExtension.class) beside a Spring test annotation that already includes it&#x27;,
+                  &#x27;Remove @ExtendWith(SpringExtension.class) and its import.&#x27;] END,
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND (d.signature CONTAINS &#x27;extends WebSecurityConfigurerAdapter&#x27; OR d.signature CONTAINS &#x27;: WebSecurityConfigurerAdapter&#x27;)
             THEN [&#x27;WEB_SECURITY_CONFIGURER_ADAPTER&#x27;, &#x27;error&#x27;, &#x27;Extends WebSecurityConfigurerAdapter, which Spring Security 6 removed&#x27;,
                   &#x27;Make the class a plain @Configuration. Turn configure(HttpSecurity) into a @Bean method returning SecurityFilterChain that ends in http.build(), and configure(WebSecurity) into a @Bean WebSecurityCustomizer. Use the lambda DSL (authorizeHttpRequests(a -&gt; ...)).&#x27;] END,
-       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND &#x27;Bean&#x27; IN d.annotations AND ownerName &lt;&gt; &#x27;&#x27; AND NOT (d.path + &#x27;#&#x27; + ownerName) IN containers
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND &#x27;Bean&#x27; IN d.annotations AND ownerName &lt;&gt; &#x27;&#x27; AND NOT ownerKey IN containers
             THEN [&#x27;MISSING_CONFIGURATION_ANNOTATION&#x27;, &#x27;warning&#x27;, &#x27;@Bean method in a class that is not a configuration or component, so the bean is never registered unless the class is imported&#x27;,
                   &#x27;Annotate the enclosing class with @Configuration (use proxyBeanMethods = false if its @Bean methods do not call each other), or confirm that it is registered through @Import.&#x27;] END,
        CASE WHEN d.kind = &#x27;field&#x27; AND &#x27;Autowired&#x27; IN d.annotations AND (d.signature CONTAINS &#x27; final &#x27; OR d.signature STARTS WITH &#x27;final &#x27; OR d.signature CONTAINS &#x27; val &#x27;)
@@ -401,7 +447,7 @@ WITH d, ownerName, written,
        CASE WHEN d.kind = &#x27;field&#x27; AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Inject&#x27;]) AND NOT (d.signature CONTAINS &#x27; final &#x27; OR d.signature CONTAINS &#x27; val &#x27;)
             THEN [&#x27;JAVA_CONSTRUCTOR_PARAMETER_INJECTION&#x27;, &#x27;hint&#x27;, &#x27;Field injection&#x27;,
                   &#x27;Make the field final (val in Kotlin), remove @Autowired, and take it as a constructor parameter. The class can then be built in a test without a Spring context.&#x27;] END,
-       CASE WHEN d.kind = &#x27;constructor&#x27; AND d.language = &#x27;java&#x27; AND &#x27;Autowired&#x27; IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + &#x27;#&#x27; + ownerName]) = 1
+       CASE WHEN d.kind = &#x27;constructor&#x27; AND d.language = &#x27;java&#x27; AND &#x27;Autowired&#x27; IN d.annotations AND size([o IN ctorOwners WHERE o = ownerKey]) = 1
             THEN [&#x27;JAVA_AUTOWIRED_CONSTRUCTOR&#x27;, &#x27;hint&#x27;, &#x27;@Autowired on the only constructor, where it is not needed&#x27;,
                   &#x27;Remove @Autowired from the constructor. Spring uses a class\&#x27;s single constructor without it.&#x27;] END,
        CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND written CONTAINS &#x27;@RequestMapping&#x27; AND written CONTAINS &#x27;RequestMethod.&#x27; AND NOT split(written, &#x27;RequestMethod.&#x27;)[1] CONTAINS &#x27;RequestMethod.&#x27;
@@ -437,7 +483,30 @@ RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN d.name ELSE ownerName END AS class,
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN null ELSE d.name END AS member,
        f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
-ORDER BY CASE f[1] WHEN &#x27;error&#x27; THEN 0 WHEN &#x27;warning&#x27; THEN 1 ELSE 2 END, code, path, line LIMIT 5000</pre></details>
+ORDER BY CASE f[1] WHEN &#x27;error&#x27; THEN 0 WHEN &#x27;warning&#x27; THEN 1 ELSE 2 END, code, path, line LIMIT 5000
+UNION
+/* Spring Security&#x27;s configuration calls, in Java (Kotlin&#x27;s DSL writes the same names correctly). */
+MATCH (p:JavaProject {key: $project})-[:CALLS_SOURCE]-&gt;(c:SpringCall)
+WHERE c.language = &#x27;java&#x27; AND NOT c.path CONTAINS &#x27;src/test/&#x27;
+  AND c.method IN [&#x27;antMatchers&#x27;, &#x27;mvcMatchers&#x27;, &#x27;regexMatchers&#x27;, &#x27;authorizeRequests&#x27;, &#x27;and&#x27;, &#x27;csrf&#x27;, &#x27;cors&#x27;, &#x27;formLogin&#x27;, &#x27;httpBasic&#x27;, &#x27;sessionManagement&#x27;, &#x27;headers&#x27;, &#x27;logout&#x27;, &#x27;oauth2Login&#x27;, &#x27;oauth2ResourceServer&#x27;, &#x27;exceptionHandling&#x27;, &#x27;authorizeHttpRequests&#x27;, &#x27;anonymous&#x27;, &#x27;rememberMe&#x27;, &#x27;requestCache&#x27;, &#x27;securityContext&#x27;]
+WITH c, replace(replace(coalesce(c.receiver, &#x27;&#x27;), &#x27; &#x27;, &#x27;&#x27;), &#x27;\n&#x27;, &#x27;&#x27;) AS recv
+WITH c, recv, ANY(m IN [&#x27;authorizeRequests(&#x27;, &#x27;authorizeHttpRequests(&#x27;, &#x27;.csrf(&#x27;, &#x27;.formLogin(&#x27;, &#x27;.httpBasic(&#x27;, &#x27;.sessionManagement(&#x27;, &#x27;.headers(&#x27;, &#x27;.logout(&#x27;, &#x27;.oauth2Login(&#x27;, &#x27;.oauth2ResourceServer(&#x27;, &#x27;.exceptionHandling(&#x27;, &#x27;.cors(&#x27;] WHERE recv CONTAINS m) AS inSecurityChain
+WITH c,
+     CASE WHEN c.method IN [&#x27;antMatchers&#x27;, &#x27;mvcMatchers&#x27;, &#x27;regexMatchers&#x27;] AND (inSecurityChain OR recv CONTAINS &#x27;web.ignoring(&#x27; OR recv CONTAINS &#x27;Matchers(&#x27;)
+            THEN [&#x27;SECURITY_REMOVED_MATCHERS&#x27;, &#x27;error&#x27;, c.method + &#x27;(...), which Spring Security 6 removed&#x27;,
+                  &#x27;Replace &#x27; + c.method + &#x27;(...) with requestMatchers(...), keeping the patterns. With Spring MVC on the classpath the patterns are matched as MVC patterns.&#x27;]
+          WHEN c.method = &#x27;authorizeRequests&#x27; AND (recv = &#x27;http&#x27; OR recv ENDS WITH &#x27;http&#x27; OR recv STARTS WITH &#x27;http.&#x27;)
+            THEN [&#x27;HTTP_SECURITY_AUTHORIZE_HTTP_REQUESTS&#x27;, &#x27;warning&#x27;, &#x27;authorizeRequests(), deprecated in Spring Security 6 and removed in 7&#x27;,
+                  &#x27;Use authorizeHttpRequests(auth -&gt; auth ...) with requestMatchers(...). Note that access rules written as SpEL strings (access(&quot;...&quot;)) become AuthorizationManager arguments.&#x27;]
+          WHEN c.method = &#x27;and&#x27; AND size(c.arguments) = 0 AND inSecurityChain
+            THEN [&#x27;JAVA_LAMBDA_DSL&#x27;, &#x27;warning&#x27;, &#x27;.and() chaining in a Spring Security configuration, removed in Spring Security 7&#x27;,
+                  &#x27;Configure each part with a lambda instead: http.csrf(csrf -&gt; csrf.disable()).authorizeHttpRequests(auth -&gt; auth ...). Each lambda returns to http, so and() is no longer needed.&#x27;]
+          WHEN c.method &lt;&gt; &#x27;and&#x27; AND c.method &lt;&gt; &#x27;authorizeRequests&#x27; AND NOT c.method ENDS WITH &#x27;Matchers&#x27; AND size(c.arguments) = 0 AND (recv = &#x27;http&#x27; OR recv STARTS WITH &#x27;http.&#x27;)
+            THEN [&#x27;JAVA_LAMBDA_DSL&#x27;, &#x27;warning&#x27;, c.method + &#x27;() without a lambda in a Spring Security configuration, a form removed in Spring Security 7&#x27;,
+                  &#x27;Pass a lambda: http.&#x27; + c.method + &#x27;(&#x27; + c.method + &#x27; -&gt; &#x27; + c.method + &#x27; ...), or &#x27; + c.method + &#x27;(Customizer.withDefaults()) to keep the defaults.&#x27;] END AS f
+WHERE f IS NOT NULL
+RETURN f[0] AS code, f[1] AS severity, f[2] AS found, last(split(replace(c.path, &#x27;.java&#x27;, &#x27;&#x27;), &#x27;/&#x27;)) AS class, c.enclosing AS member,
+       f[3] AS fix, c.language AS language, c.path AS path, c.line AS line, c.url AS link</pre></details>
   <details><summary><b>TransactionalWork</b> — SELECT THIS for &quot;which transactions do the most&quot;, &quot;which transactions could be read-only&quot;, &quot;what does this transactional method touch&quot;. Every method the project&#x27;s main source runs in a transaction (@Transactional on the method, in Java, Kotlin or Scala), with what it does inside: how many calls it makes that write (save, delete, persist, merge, update, insert, remove, flush, execute), how many that read (find, get, load, query, select, exists, count, fetch), the names called, whether it is declared readOnly, and `couldBeReadOnly`: true when it is not declared readOnly, makes no call that writes and makes at least one that reads. Most calls first. Matched by the name of what is called, inside the method&#x27;s own body only: a write made by a method it calls is not seen, so couldBeReadOnly is a candidate to check, not a proof, and a method that only delegates shows no operations. @Transactional on a class is not expanded to its methods.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND &#x27;Transactional&#x27; IN d.annotations
 WITH p, collect({path: d.path, name: d.name, owner: last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)), line: d.line, url: d.url, language: d.language,
@@ -713,39 +782,10 @@ LIMIT 2000</pre></details>
 RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
        p.modules AS modules, p.analysedAt AS analysedAt, p.failed AS failed
 ORDER BY analysedAt DESC LIMIT 200</pre></details>
-  <details><summary><b>ModuleSources</b> — Each Maven module of a project with how many source files it holds, main and test, and in which languages. The first step down from a project: pick a module, then ask ModulePackages.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_MODULE]-&gt;(m:ProjectModule)
-OPTIONAL MATCH (p)-[:HAS_FILE]-&gt;(f:ProjectFile)
-WHERE f.module = m.module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
-WITH m, f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;)[0] AS sourceSet
-RETURN m.module AS module, m.coordinates AS coordinates, m.packaging AS packaging, m.name AS name,
-       count(CASE WHEN sourceSet = &#x27;main&#x27; THEN 1 END) AS mainFiles,
-       count(CASE WHEN sourceSet = &#x27;test&#x27; THEN 1 END) AS testFiles,
-       [x IN collect(DISTINCT f.extension) WHERE x IS NOT NULL] AS languages
-ORDER BY mainFiles DESC, module LIMIT 500</pre></details>
-  <details><summary><b>ModulePackages</b> — The packages of one Maven module, by source set (main, test), with how many source files each holds and in which languages. A package is the directory under `src/&lt;set&gt;/&lt;language&gt;/`.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
-WHERE f.module = $module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
-WITH f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;) AS parts
-WITH parts[0] AS sourceSet, f,
-     reduce(s = &#x27;&#x27;, x IN parts[2..size(parts) - 1] | CASE WHEN s = &#x27;&#x27; THEN x ELSE s + &#x27;.&#x27; + x END) AS package
-RETURN package, sourceSet, count(f) AS files, collect(DISTINCT f.extension) AS languages
-ORDER BY sourceSet, package LIMIT 3000</pre></details>
-  <details><summary><b>PackageFiles</b> — The source files of one package in one module and source set, each with a link to it on the repository&#x27;s host.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
-WHERE f.module = $module AND f.extension IN [&#x27;java&#x27;, &#x27;kt&#x27;, &#x27;kts&#x27;, &#x27;groovy&#x27;, &#x27;scala&#x27;] AND (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/&#x27;
-WITH f, split(split(&#x27;/&#x27; + f.path, &#x27;/src/&#x27;)[1], &#x27;/&#x27;) AS parts
-WITH f, parts[0] AS sourceSet,
-     reduce(s = &#x27;&#x27;, x IN parts[2..size(parts) - 1] | CASE WHEN s = &#x27;&#x27; THEN x ELSE s + &#x27;.&#x27; + x END) AS package
-WHERE package = $package AND sourceSet = $sourceSet
-RETURN f.fileName AS file, f.extension AS language, f.path AS path, f.link AS link
-ORDER BY file LIMIT 2000</pre></details>
-  <details><summary><b>FilesByExtension</b> — What a project is written in: its files counted by extension, with how many are under src/main and src/test and how many modules hold them. Every file is counted, not only JVM source, so a build with TypeScript, Python or templates beside its Kotlin and Java shows them.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
-WHERE f.extension IS NOT NULL AND f.extension &lt;&gt; &#x27;&#x27;
-WITH f.extension AS extension, f,
-     CASE WHEN (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/test/&#x27; THEN &#x27;test&#x27; WHEN (&#x27;/&#x27; + f.path) CONTAINS &#x27;/src/main/&#x27; THEN &#x27;main&#x27; ELSE &#x27;other&#x27; END AS place
-RETURN extension, count(f) AS files,
-       count(CASE WHEN place = &#x27;main&#x27; THEN 1 END) AS mainFiles,
-       count(CASE WHEN place = &#x27;test&#x27; THEN 1 END) AS testFiles,
-       count(DISTINCT f.module) AS modules
-ORDER BY files DESC LIMIT 80</pre></details>
+  <details><summary><b>ModuleSources</b> — a view of another installed realm (the code index, realm-polyglot-code), used as it is.</summary></details>
+  <details><summary><b>ModulePackages</b> — a view of another installed realm (the code index, realm-polyglot-code), used as it is.</summary></details>
+  <details><summary><b>PackageFiles</b> — a view of another installed realm (the code index, realm-polyglot-code), used as it is.</summary></details>
+  <details><summary><b>FilesByExtension</b> — a view of another installed realm (the code index, realm-polyglot-code), used as it is.</summary></details>
   <details><summary><b>WhyNotApplied</b> — Why each auto-configuration or @Bean method did NOT apply in a running app, in Spring&#x27;s own words — &quot;why isn&#x27;t my bean created&quot;. Takes /actuator/conditions.</summary><pre class="mono">MATCH (:RunningApp {actuator: $actuator})-[:EVALUATED]-&gt;(c:RuntimeCondition {configurationMatched: false, outcome: &#x27;notMatched&#x27;})
 RETURN c.configuration AS configuration, c.beanMethod AS beanMethod, c.condition AS condition, c.message AS why
 ORDER BY configuration LIMIT 2000</pre></details>
