@@ -26,6 +26,7 @@ const FIX = {
               { line: '3.5', latestPatch: '3.5.16', support: 'supported', javaVersions: '17 - 25' }],
   Triage: [], MyProjects: [],
   ModernizationFindings: [{ id: 'rule:1', severity: 'low', category: 'modernize', title: 'Field injection', detail: 'd', fix: 'f', file: 'a/src/main/java/A.java', line: 3, link: null }],
+  ModernizationFindingsInCode: [{ id: 'rule:2:shop-web/src/main/kotlin/Cart.kt#Cart.repo', severity: 'medium', category: 'design', title: 'Field injection: Cart.repo', detail: 'd', fix: 'f', file: 'shop-web/src/main/kotlin/Cart.kt', line: 7, link: null }],
   VulnerableDependencies: [], VersionOverrides: [],
   ModuleSources: [
     { module: 'shop-core', coordinates: 'com.acme:shop-core:1.0', packaging: 'jar', name: 'core', mainFiles: 40, testFiles: 12, languages: ['java', 'kt'] },
@@ -108,7 +109,8 @@ try {
   ok((await text(page, '#progress .ptop b')) === 'Done — all 6 checks completed', 'the outcome says every check completed');
   const outcome = await text(page, '#progress .outcome');
   ok(outcome.includes('github.com/acme/shop@1915b7016b3f') && outcome.includes('4 module(s)') && outcome.includes('310 Java types'), 'and what was read: the commit, modules and types');
-  ok(outcome.includes('65 Kotlin source files') && outcome.includes('code rules') && outcome.includes('incomplete') && outcome.includes('Beans, endpoints and the structure cover Kotlin'), 'a Kotlin project is told which checks still read Java only, with the count (40 + 25 main files)');
+  ok(outcome.includes('65 Kotlin source files') && outcome.includes('configuration check still reads Java source only'), 'a Kotlin project is told the one check that still reads Java only, with the count (40 + 25 main files)');
+  ok(await page.locator('#tabs button[data-tab="inbox"] .count').innerText() === '2', 'the inbox holds both halves of the code rules: one finding from imports, one from a Kotlin declaration');
   ok((await text(page, '#recommend')).includes('nothing to upgrade to'), 'on the newest release, no upgrade is offered');
   ok(!(await page.evaluate(() => window.__calls)).some((c) => c.startsWith('UpgradeConfiguration')), 'and no upgrade check is run against the version it is already on');
   await page.click('button[data-tab="upgrade"]');

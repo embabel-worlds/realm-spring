@@ -2,3 +2,4 @@
 # tree-sitter reading every language gets, with no language of its own in the engine. Spring runs on
 # the JVM, so the JVM languages the kind reads are named; add one here when the kind gains it.
 - { name: springDeclarations, kind: source-tree, emit: declarations, languages: [java, kotlin, scala] }
+- { name: springImports, kind: source-tree, emit: imports, languages: [java, kotlin, scala] }

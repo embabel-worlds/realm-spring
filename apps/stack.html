@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -163,9 +163,11 @@ RETURN g.name AS line, g.initialReleaseDate AS released, g.ossSupportEndDate AS 
             WHEN g.commercialSupportEndDate &gt;= today THEN &#x27;commercial-only&#x27;
             ELSE &#x27;unsupported&#x27; END AS support
 ORDER BY released DESC LIMIT 40</pre></details>
-  <details><summary><b>ModernizationFindings</b> — Code Spring has moved past, from the realm&#x27;s rule catalogue (reference/rules.yml — the SpringRule rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring&#x27;s documentation. With `target` (a Spring Boot version) it says which findings block that upgrade.</summary><pre class="mono">MATCH (r:SpringRule {kind: &#x27;import&#x27;})
-MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]-&gt;(i:JavaProjectImport)
-WHERE i.name STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE i.name STARTS WITH x)
+  <details><summary><b>ModernizationFindings</b> — Code Spring has moved past, in Java, Kotlin or Scala, from the realm&#x27;s rule catalogue (reference/rules.yml — the SpringRule rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring&#x27;s documentation. With `target` (a Spring Boot version) it says which findings block that upgrade.</summary><pre class="mono">MATCH (r:SpringRule {kind: &#x27;import&#x27;})
+MATCH (p:JavaProject {key: $project})-[:IMPORTS_SOURCE]-&gt;(i:SpringImport)
+// What is imported, in full: Java&#x27;s rows name it (`name`); the other languages&#x27; say where from (`imported`).
+WITH r, i, coalesce(i.name, i.imported) AS imported
+WHERE imported STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE imported STARTS WITH x)
   AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT i.path CONTAINS &#x27;src/test/&#x27;)
 WITH r, i ORDER BY i.path, i.line
 WITH r, collect(i) AS uses, collect(DISTINCT i.path) AS files
@@ -175,40 +177,7 @@ RETURN &#x27;rule:&#x27; + r.ruleId AS id,
        r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
                        THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
        r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
-       uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-UNION
-MATCH (r:SpringRule {kind: &#x27;annotation&#x27;})
-MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation)
-WHERE a.name = r.pattern AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
-WITH r, a ORDER BY a.path, a.line
-WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
-RETURN &#x27;rule:&#x27; + r.ruleId AS id,
-       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + toString(size(uses)) + &#x27; use&#x27; + CASE WHEN size(uses) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END + &#x27; in &#x27; + toString(size(files)) + &#x27; file&#x27; + CASE WHEN size(files) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END
-         + &#x27; (&#x27; + reduce(t = &#x27;&#x27;, f IN files[0..4] | t + CASE WHEN t = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + split(f, &#x27;/&#x27;)[size(split(f, &#x27;/&#x27;)) - 1]) + CASE WHEN size(files) &gt; 4 THEN &#x27;, …&#x27; ELSE &#x27;&#x27; END + &#x27;)&#x27; AS title,
-       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
-                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
-       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
-       uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-UNION
-MATCH (r:SpringRule {kind: &#x27;field-annotation&#x27;})
-MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]-&gt;(a:JavaProjectAnnotation {targetKind: &#x27;field&#x27;})
-WHERE a.name = r.pattern AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
-RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + a.owner + &#x27;#&#x27; + a.targetName AS id,
-       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + split(a.owner, &#x27;.&#x27;)[size(split(a.owner, &#x27;.&#x27;)) - 1] + &#x27;.&#x27; + a.targetName AS title,
-       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
-                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
-       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
-       a.path AS file, a.line AS line, a.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-UNION
-MATCH (r:SpringRule {kind: &#x27;extends&#x27;})
-MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]-&gt;(t:JavaProjectType)
-WHERE ANY(x IN t.extends WHERE x ENDS WITH r.pattern) AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT t.path CONTAINS &#x27;src/test/&#x27;)
-RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + t.name AS id,
-       r.severity AS severity, r.category AS category, t.simpleName + &#x27; &#x27; + r.title AS title,
-       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
-                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
-       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
-       t.path AS file, t.line AS line, t.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+       uses[0].path AS file, uses[0].line AS line, coalesce(uses[0].link, uses[0].url) AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 UNION
 MATCH (r:SpringRule {kind: &#x27;file&#x27;})
 MATCH (p:JavaProject {key: $project})-[:HAS_FILE]-&gt;(f:ProjectFile)
@@ -219,6 +188,46 @@ RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + f.path AS id,
                        THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
        r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
        f.path AS file, 1 AS line, f.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn</pre></details>
+  <details><summary><b>ModernizationFindingsInCode</b> — The second half of ModernizationFindings: the rules that match an annotation, an injected field or a supertype, where that view has those that match an import or a file. Two views because each reads a whole project&#x27;s rows of one kind, and a large project&#x27;s imports and declarations together are more than one statement may bring in. Code Spring has moved past, in Java, Kotlin or Scala, from the realm&#x27;s rule catalogue (reference/rules.yml — the SpringRule rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring&#x27;s documentation. With `target` (a Spring Boot version) it says which findings block that upgrade.</summary><pre class="mono">MATCH (r:SpringRule {kind: &#x27;annotation&#x27;})
+MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(a:SpringDeclaration)
+// Only the kinds these annotations are written on are read: a filter on the row&#x27;s own property
+// is applied before rows are brought in, and a large project&#x27;s every declaration is too many.
+// A use-site target (`@field:MockBean`) is the same annotation.
+WHERE a.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;field&#x27;]
+  AND ANY(x IN a.annotations WHERE x = r.pattern OR x ENDS WITH &#x27;:&#x27; + r.pattern)
+  AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
+WITH r, a ORDER BY a.path, a.line
+WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
+RETURN &#x27;rule:&#x27; + r.ruleId AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + toString(size(uses)) + &#x27; use&#x27; + CASE WHEN size(uses) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END + &#x27; in &#x27; + toString(size(files)) + &#x27; file&#x27; + CASE WHEN size(files) = 1 THEN &#x27;&#x27; ELSE &#x27;s&#x27; END
+         + &#x27; (&#x27; + reduce(t = &#x27;&#x27;, f IN files[0..4] | t + CASE WHEN t = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + split(f, &#x27;/&#x27;)[size(split(f, &#x27;/&#x27;)) - 1]) + CASE WHEN size(files) &gt; 4 THEN &#x27;, …&#x27; ELSE &#x27;&#x27; END + &#x27;)&#x27; AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       uses[0].path AS file, uses[0].line AS line, uses[0].url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+UNION
+MATCH (r:SpringRule {kind: &#x27;field-annotation&#x27;})
+MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(a:SpringDeclaration)
+WHERE a.kind = &#x27;field&#x27; AND ANY(x IN a.annotations WHERE x = r.pattern OR x = &#x27;field:&#x27; + r.pattern)
+  AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT a.path CONTAINS &#x27;src/test/&#x27;)
+RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + a.path + &#x27;#&#x27; + coalesce(a.owner, &#x27;&#x27;) + &#x27;.&#x27; + a.name AS id,
+       r.severity AS severity, r.category AS category, r.title + &#x27;: &#x27; + last(split(coalesce(a.owner, &#x27;&#x27;), &#x27;.&#x27;)) + &#x27;.&#x27; + a.name AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       a.path AS file, a.line AS line, a.url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+UNION
+MATCH (r:SpringRule {kind: &#x27;extends&#x27;})
+MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(t:SpringDeclaration)
+// The supertype as the declaration writes it: `extends X` in Java and Scala, `: X()` in Kotlin.
+WHERE t.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND t.signature CONTAINS r.pattern
+  AND (coalesce(r.appliesTo, &#x27;all&#x27;) = &#x27;all&#x27; OR NOT t.path CONTAINS &#x27;src/test/&#x27;)
+RETURN &#x27;rule:&#x27; + r.ruleId + &#x27;:&#x27; + t.path + &#x27;#&#x27; + t.name AS id,
+       r.severity AS severity, r.category AS category, t.name + &#x27; &#x27; + r.title AS title,
+       r.detail + CASE WHEN r.breaksIn &lt;&gt; &#x27;&#x27; AND $target &lt;&gt; &#x27;&#x27; AND [n IN [x IN split($target, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL][0..2] &gt;= [n IN [x IN split(r.breaksIn, &#x27;.&#x27;) | toInteger(x)] WHERE n IS NOT NULL]
+                       THEN &#x27; Blocks the upgrade to &#x27; + $target + &#x27;.&#x27; ELSE &#x27;&#x27; END AS detail,
+       r.fix + CASE WHEN r.recipe &lt;&gt; &#x27;&#x27; THEN &#x27; (OpenRewrite recipe &#x27; + r.recipe + &#x27;)&#x27; ELSE &#x27;&#x27; END + &#x27;.&#x27; AS fix,
+       t.path AS file, t.line AS line, t.url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn</pre></details>
   <details><summary><b>ConfigurationProblems</b> — Settings in the project&#x27;s application*.yml / .properties that the Spring Boot it runs does not bind (a typo, or a property from another version), and settings it has deprecated — checked against what the project&#x27;s own Spring Boot jars document. Keys under the project&#x27;s own @ConfigurationProperties prefixes, or read by @Value, are the project&#x27;s and are not flagged. Downloads the project&#x27;s Spring Boot jars the first time.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:HAS_JAR]-&gt;(j:ProjectJar)
 WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH &#x27;org.springframework&#x27; OR j.artifactId CONTAINS &#x27;spring-boot&#x27;
    OR j.artifactId CONTAINS &#x27;starter&#x27; OR j.artifactId CONTAINS &#x27;autoconfigure&#x27;)
@@ -359,7 +368,7 @@ RETURN &#x27;vulnerable:&#x27; + coordinates AS id,
        coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
 ORDER BY cvss DESC LIMIT 500</pre></details>
   <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration or a controller advice, and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
-WHERE NOT (&#x27;/&#x27; + d.path) CONTAINS &#x27;/src/test/&#x27;
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
   AND ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
                                     OR ANY(g IN [&#x27;Profile&#x27;, &#x27;Conditional&#x27;] WHERE a STARTS WITH g))
 // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
@@ -495,7 +504,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
   /* A finding check reads every candidate (every import, every setting, every dependency), so when it
      matches none the answer is "nothing found" — the one case the runtime reports as FETCHED_NOT_MATCHED. */
-  var EXHAUSTIVE = { ModernizationFindings: 1, ConfigurationProblems: 1, UpgradeConfiguration: 1, VulnerableDependencies: 1,
+  var EXHAUSTIVE = { ModernizationFindings: 1, ModernizationFindingsInCode: 1, ConfigurationProblems: 1, UpgradeConfiguration: 1, VulnerableDependencies: 1,
                      VersionOverrides: 1, Vulnerabilities: 1, Beans: 1, Profiles: 1, Triage: 1 };
   function view(name, params) {
     return embabel.views.invoke(name, params || {}).then(rowsOf).catch(function (e) {
@@ -561,7 +570,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (o) bits.push('Read <b>' + esc(o.project) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
     else if (s) bits.push('Read <b>' + esc(state.project) + '</b>');
     var k = kotlinFiles();
-    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. The code rules and the configuration check read Java source only, so for this project they are incomplete. Beans, endpoints and the structure cover Kotlin.</span>');
+    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. The configuration check still reads Java source only to learn which settings the project’s own code binds, so on this project it can flag a setting your Kotlin reads.</span>');
     return bits.length ? '<div class="outcome">' + bits.join('<br>') + '</div>' : '';
   }
   function kotlinFiles() {
@@ -606,7 +615,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     }).then(function () {
       mark('support', 'done');
       pickTarget();
-      run('modern', 'ModernizationFindings', { project: key, target: state.target || '' });
+      runRules('modern');
       run('config', 'ConfigurationProblems', { project: key });
       run('deps', 'VulnerableDependencies', { project: key });
       run(null, 'VersionOverrides', { project: key });
@@ -615,6 +624,23 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       mark('code', 'fail', 'Could not read the project');
       $('panel').innerHTML = '<div class="note warn">Could not read ' + esc(key) + ': ' + esc(e && (e.message || e.error || JSON.stringify(e)) || e) +
         '. A repository must be public on GitHub or GitLab; a folder must be in this appliance’s workspace.</div>';
+    });
+  }
+  /*
+   * The code rules are two views: those that match an import or a file, and those that match a
+   * declaration. Each reads a whole project's rows of one kind, and together they are more than
+   * one statement may bring in on a large project. The check is done when both are; if one cannot
+   * complete, what the other found is still shown and the check says why it is short.
+   */
+  function runRules(step) {
+    if (step) mark(step, 'run');
+    var key = state.project, params = { project: key, target: state.target || '' }, failure = null;
+    var half = function (name) {
+      return view(name, params).then(function (rows) { if (key === state.project) { add(rows); render(); } })
+        .catch(function (e) { failure = failure || reason(e); console.warn(name, e); });
+    };
+    return Promise.all([half('ModernizationFindings'), half('ModernizationFindingsInCode')]).then(function () {
+      if (step && key === state.project) mark(step, failure ? 'fail' : 'done', failure || '');
     });
   }
   function run(step, name, params) {
@@ -820,7 +846,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     var sel = $('target'); if (sel) sel.addEventListener('change', function () {
       state.findings = state.findings.filter(function (f) { return f.id.indexOf('upgrade-config:') !== 0 && f.id.indexOf('rule:') !== 0; });
       state.target = sel.value; state.upgrade = null; renderStack(); render(); loadUpgrade();
-      run(null, 'ModernizationFindings', { project: state.project, target: state.target });
+      runRules(null);
     });
     var cp = $('copyplan'); if (cp) cp.addEventListener('click', function () {
       navigator.clipboard.writeText(plan(blockers)).then(function () { cp.textContent = 'Copied — paste it to your coding agent'; });

@@ -42,7 +42,7 @@
 
 - name: ModernizationFindings
   description: >-
-    Code Spring has moved past, from the realm's rule catalogue (reference/rules.yml — the SpringRule
+    Code Spring has moved past, in Java, Kotlin or Scala, from the realm's rule catalogue (reference/rules.yml — the SpringRule
     rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under
     Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it
     breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring's documentation.
@@ -52,8 +52,10 @@
     target: { type: string, default: "", description: "Spring Boot version you are upgrading to, e.g. 3.5.16; empty for none." }
   cypher: |
     MATCH (r:SpringRule {kind: 'import'})
-    MATCH (p:JavaProject {key: $project})-[:HAS_IMPORT]->(i:JavaProjectImport)
-    WHERE i.name STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE i.name STARTS WITH x)
+    MATCH (p:JavaProject {key: $project})-[:IMPORTS_SOURCE]->(i:SpringImport)
+    // What is imported, in full: Java's rows name it (`name`); the other languages' say where from (`imported`).
+    WITH r, i, coalesce(i.name, i.imported) AS imported
+    WHERE imported STARTS WITH r.pattern AND NOT ANY(x IN coalesce(r.excludes, []) WHERE imported STARTS WITH x)
       AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT i.path CONTAINS 'src/test/')
     WITH r, i ORDER BY i.path, i.line
     WITH r, collect(i) AS uses, collect(DISTINCT i.path) AS files
@@ -63,40 +65,7 @@
            r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
                            THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
            r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
-           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-    UNION
-    MATCH (r:SpringRule {kind: 'annotation'})
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
-    WHERE a.name = r.pattern AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
-    WITH r, a ORDER BY a.path, a.line
-    WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
-    RETURN 'rule:' + r.ruleId AS id,
-           r.severity AS severity, r.category AS category, r.title + ': ' + toString(size(uses)) + ' use' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END
-             + ' (' + reduce(t = '', f IN files[0..4] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1]) + CASE WHEN size(files) > 4 THEN ', …' ELSE '' END + ')' AS title,
-           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
-                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
-           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
-           uses[0].path AS file, uses[0].line AS line, uses[0].link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-    UNION
-    MATCH (r:SpringRule {kind: 'field-annotation'})
-    MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {targetKind: 'field'})
-    WHERE a.name = r.pattern AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
-    RETURN 'rule:' + r.ruleId + ':' + a.owner + '#' + a.targetName AS id,
-           r.severity AS severity, r.category AS category, r.title + ': ' + split(a.owner, '.')[size(split(a.owner, '.')) - 1] + '.' + a.targetName AS title,
-           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
-                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
-           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
-           a.path AS file, a.line AS line, a.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
-    UNION
-    MATCH (r:SpringRule {kind: 'extends'})
-    MATCH (p:JavaProject {key: $project})-[:DECLARES_TYPE]->(t:JavaProjectType)
-    WHERE ANY(x IN t.extends WHERE x ENDS WITH r.pattern) AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT t.path CONTAINS 'src/test/')
-    RETURN 'rule:' + r.ruleId + ':' + t.name AS id,
-           r.severity AS severity, r.category AS category, t.simpleName + ' ' + r.title AS title,
-           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
-                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
-           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
-           t.path AS file, t.line AS line, t.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+           uses[0].path AS file, uses[0].line AS line, coalesce(uses[0].link, uses[0].url) AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
     UNION
     MATCH (r:SpringRule {kind: 'file'})
     MATCH (p:JavaProject {key: $project})-[:HAS_FILE]->(f:ProjectFile)
@@ -107,6 +76,62 @@
                            THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
            r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
            f.path AS file, 1 AS line, f.link AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+
+- name: ModernizationFindingsInCode
+  description: >-
+    The second half of ModernizationFindings: the rules that match an annotation, an injected
+    field or a supertype, where that view has those that match an import or a file. Two views
+    because each reads a whole project's rows of one kind, and a large project's imports and
+    declarations together are more than one statement may bring in.
+    Code Spring has moved past, in Java, Kotlin or Scala, from the realm's rule catalogue (reference/rules.yml — the SpringRule
+    rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under
+    Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it
+    breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring's documentation.
+    With `target` (a Spring Boot version) it says which findings block that upgrade.
+  params:
+    project: { type: string, description: "Project key." }
+    target: { type: string, default: "", description: "Spring Boot version you are upgrading to, e.g. 3.5.16; empty for none." }
+  cypher: |
+    MATCH (r:SpringRule {kind: 'annotation'})
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(a:SpringDeclaration)
+    // Only the kinds these annotations are written on are read: a filter on the row's own property
+    // is applied before rows are brought in, and a large project's every declaration is too many.
+    // A use-site target (`@field:MockBean`) is the same annotation.
+    WHERE a.kind IN ['class', 'object', 'interface', 'field']
+      AND ANY(x IN a.annotations WHERE x = r.pattern OR x ENDS WITH ':' + r.pattern)
+      AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
+    WITH r, a ORDER BY a.path, a.line
+    WITH r, collect(a) AS uses, collect(DISTINCT a.path) AS files
+    RETURN 'rule:' + r.ruleId AS id,
+           r.severity AS severity, r.category AS category, r.title + ': ' + toString(size(uses)) + ' use' + CASE WHEN size(uses) = 1 THEN '' ELSE 's' END + ' in ' + toString(size(files)) + ' file' + CASE WHEN size(files) = 1 THEN '' ELSE 's' END
+             + ' (' + reduce(t = '', f IN files[0..4] | t + CASE WHEN t = '' THEN '' ELSE ', ' END + split(f, '/')[size(split(f, '/')) - 1]) + CASE WHEN size(files) > 4 THEN ', …' ELSE '' END + ')' AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           uses[0].path AS file, uses[0].line AS line, uses[0].url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+    UNION
+    MATCH (r:SpringRule {kind: 'field-annotation'})
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(a:SpringDeclaration)
+    WHERE a.kind = 'field' AND ANY(x IN a.annotations WHERE x = r.pattern OR x = 'field:' + r.pattern)
+      AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT a.path CONTAINS 'src/test/')
+    RETURN 'rule:' + r.ruleId + ':' + a.path + '#' + coalesce(a.owner, '') + '.' + a.name AS id,
+           r.severity AS severity, r.category AS category, r.title + ': ' + last(split(coalesce(a.owner, ''), '.')) + '.' + a.name AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           a.path AS file, a.line AS line, a.url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
+    UNION
+    MATCH (r:SpringRule {kind: 'extends'})
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(t:SpringDeclaration)
+    // The supertype as the declaration writes it: `extends X` in Java and Scala, `: X()` in Kotlin.
+    WHERE t.kind IN ['class', 'object'] AND t.signature CONTAINS r.pattern
+      AND (coalesce(r.appliesTo, 'all') = 'all' OR NOT t.path CONTAINS 'src/test/')
+    RETURN 'rule:' + r.ruleId + ':' + t.path + '#' + t.name AS id,
+           r.severity AS severity, r.category AS category, t.name + ' ' + r.title AS title,
+           r.detail + CASE WHEN r.breaksIn <> '' AND $target <> '' AND [n IN [x IN split($target, '.') | toInteger(x)] WHERE n IS NOT NULL][0..2] >= [n IN [x IN split(r.breaksIn, '.') | toInteger(x)] WHERE n IS NOT NULL]
+                           THEN ' Blocks the upgrade to ' + $target + '.' ELSE '' END AS detail,
+           r.fix + CASE WHEN r.recipe <> '' THEN ' (OpenRewrite recipe ' + r.recipe + ')' ELSE '' END + '.' AS fix,
+           t.path AS file, t.line AS line, t.url AS link, r.docs AS docs, r.ruleId AS rule, r.breaksIn AS breaksIn
 
 - name: BootLines
   description: >-

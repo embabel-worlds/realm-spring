@@ -16,7 +16,7 @@
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
-    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+    WHERE NOT d.path CONTAINS 'src/test/'
       AND ANY(a IN d.annotations WHERE a IN ['GetMapping', 'PostMapping', 'PutMapping', 'DeleteMapping', 'PatchMapping', 'RequestMapping'])
     WITH [x IN collect(d) WHERE x.kind IN ['class', 'object', 'interface']
           | {path: x.path, name: x.name, text: [t IN x.annotationText WHERE t STARTS WITH '@RequestMapping'][0]}] AS classes,
@@ -48,7 +48,7 @@
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
-    WHERE NOT ('/' + d.path) CONTAINS '/src/test/' AND 'Transactional' IN d.annotations
+    WHERE NOT d.path CONTAINS 'src/test/' AND 'Transactional' IN d.annotations
     WITH d, d.kind IN ['class', 'object', 'interface'] AS onType,
          replace([t IN d.annotationText WHERE t STARTS WITH '@Transactional'][0], ' ', '') AS written
     RETURN CASE WHEN onType THEN 'type' ELSE 'method' END AS on,
@@ -72,7 +72,7 @@
     project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
-    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+    WHERE NOT d.path CONTAINS 'src/test/'
       AND ANY(a IN d.annotations WHERE a IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async'])
     WITH d, [a IN d.annotations WHERE a IN ['Scheduled', 'KafkaListener', 'RabbitListener', 'JmsListener', 'SqsListener', 'EventListener', 'TransactionalEventListener', 'Async']][0] AS kind
     RETURN kind, CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN d.name ELSE last(split(coalesce(d.owner, ''), '.')) END AS class,

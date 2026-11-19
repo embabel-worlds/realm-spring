@@ -13,7 +13,7 @@
     project: { type: string, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
-    WHERE NOT ('/' + d.path) CONTAINS '/src/test/'
+    WHERE NOT d.path CONTAINS 'src/test/'
       AND ANY(a IN d.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'Bean', 'ControllerAdvice', 'RestControllerAdvice']
                                         OR ANY(g IN ['Profile', 'Conditional'] WHERE a STARTS WITH g))
     // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.

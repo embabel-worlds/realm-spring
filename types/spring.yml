@@ -275,3 +275,18 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."
+
+- name: SpringImport
+  parents: [SourceImport]
+  visibility: internal
+  userAnchor: false
+  description: "One import in a project's Java, Kotlin or Scala source, as the file writes it. Reach it from (:JavaProject {key})-[:IMPORTS_SOURCE]->."
+  virtualJoins:
+    - { anchorLabel: JavaProject, relationship: IMPORTS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springImports, maxFanoutTotal: 500000,
+        description: "(:JavaProject {key:$project})-[:IMPORTS_SOURCE]->(i:SpringImport)" }
+  properties:
+    path: "File path, relative to the project."
+    language: "java, kotlin or scala."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."
+    project: "The project as read: the folder, or host/repo@commit."
