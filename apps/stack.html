@@ -998,8 +998,16 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       var job = function () {
         if (e.project !== state.project) { resolve(e); return; }
         e.state = 'run'; e.start = Date.now(); sumActive++; sumRedraw();
-        view(name, params).then(function (rows) {
-          var r = rows[0]; e.state = r && r.summary ? 'done' : 'none'; e.text = r && r.summary; e.at = r && r.generatedAt;
+        embabel.views.invoke(name, params).then(function (answer) {
+          var r = rowsOf(answer)[0], warnings = (answer && (answer.warnings || (answer.data && answer.data.warnings))) || [];
+          if (r && r.summary) { e.state = 'done'; e.text = r.summary; e.at = r.generatedAt; return; }
+          /* No row is "nothing to summarize" only when the appliance says nothing went wrong. */
+          var why = warnings.map(String).filter(function (w) { return /not all gathered|maxAnchors|PRODUCER_ERROR|REDUCTION_FAILED|refus/i.test(w); })[0];
+          if (!why) { e.state = 'none'; return; }
+          e.state = 'error';
+          e.text = /maxAnchors|not all gathered/.test(why)
+            ? 'Could not be written: this appliance cannot yet gather the summaries beneath it on a project this large. The summaries of single files are not affected.'
+            : 'Could not be written: ' + why.replace(/\s+/g, ' ').slice(0, 200);
         }).catch(function (err) {
           e.state = 'error'; e.text = reason(err);
           if (/unknown view|no view|not found/i.test(String(err && err.message))) sumOff = true;

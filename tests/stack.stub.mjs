@@ -75,7 +75,7 @@ const FIX = {
   Profiles: [{ profile: 'dev', where: 'file', what: 'application-dev.yml', file: 'shop-web/src/main/resources/application-dev.yml', line: 1, link: null }],
 };
 
-/* mode: slowSum (file summaries take 1.5 s) | ok | configFails | slowBeans | behind (project on 4.0.3) | mine (one project already kept) */
+/* mode: bigProject (a package's summary cannot be gathered) | slowSum (file summaries take 1.5 s) | ok | configFails | slowBeans | behind (project on 4.0.3) | mine (one project already kept) */
 const stub = (mode) => `
   window.__calls = []; window.__writes = [];
   const FIX = ${JSON.stringify(FIX)}; const MODE = ${JSON.stringify(mode)};
@@ -87,6 +87,7 @@ const stub = (mode) => `
     if (name === 'StackCard' && MODE === 'behind') return [Object.assign({}, FIX.StackCard[0], { bootVersion: '4.0.3', bootLine: '4.0.x', latestPatch: '4.0.9' })];
     if (name === 'MyProjects' && MODE === 'mine') return [{ key: 'https://github.com/acme/billing', name: 'acme/billing', bootVersion: '3.5.9', support: 'supported', read: 'github.com/acme/billing@abc', modules: 2, analysedAt: new Date(Date.now() - 7200000).toISOString(), failed: 0 }];
     if (name === 'Beans' && MODE === 'slowBeans') await wait(2500);
+    if (name === 'PackageSummary' && MODE === 'bigProject') return { status: 'ok', rows: [], warnings: ["PARTIAL_RESULT: producer 'codePackageSummary' (collect): the items were not all gathered (would ask the source for 10606 distinct keys, exceeding maxAnchors 200)"] };
     if (name === 'FileSummary') { if (MODE === 'slowSum') await wait(1500); const t = FIX.FileSummary[args.path]; return t ? [{ path: args.path, summary: t, declarations: 4, generatedAt: '2026-11-19T04:00:00Z' }] : []; }
     if (!FIX[name]) throw new Error('no fixture for ' + name);
     return FIX[name];
@@ -256,6 +257,14 @@ try {
   await page.waitForFunction(() => document.querySelector('#panel tr[data-pkg="1"]')?.textContent.includes('The shopping cart'), null, { timeout: 8000 });
   ok(true, 'and the package\'s summary arrives in the list it was left for');
   ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
+  await page.close();
+
+  console.log('a summary the appliance could not gather');
+  ({ page, errors } = await open(browser, 'bigProject', '#project=' + encodeURIComponent(PROJECT) + '&tab=structure&module=shop-web&pkg=com.acme.shop.web.cart&set=main'));
+  await page.waitForFunction(() => document.querySelector('#panel .sumbox .t')?.textContent.includes('Could not be written'));
+  const big = await text(page, '#panel');
+  ok(big.includes('cannot yet gather the summaries beneath it on a project this large'), 'a package summary that could not be gathered says so, and why, not "nothing to summarize"');
+  ok(big.includes('Holds the items of one shopping cart.') && big.includes('Summaries: 2 of 2 files'), 'and the files\' summaries are still shown');
   await page.close();
 
   console.log('a reader who already has a project');
