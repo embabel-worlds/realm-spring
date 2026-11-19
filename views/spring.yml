@@ -58,11 +58,9 @@
     WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
        OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
     MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
-    // Each documented property is normalised ONCE here. Normalising it again for every setting is
-    // settings × properties strings, which a large project cannot afford.
-    WITH p, collect({k: toLower(replace(replace(bp.name, '-', ''), '_', '')), p: bp}) AS props
+    WITH p, collect(bp) AS props
     WITH p, props,
-         [x IN props WHERE x.p.type STARTS WITH 'java.util.Map' OR x.p.type STARTS WITH 'java.util.List' | x.k] AS open
+         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | toLower(replace(replace(x.name, '-', ''), '_', ''))] AS open
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
     WHERE cp.name = 'ConfigurationProperties' OR cp.name = 'Value'
     WITH p, props, open,
@@ -78,19 +76,14 @@
     // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
     WITH props, open, ownPrefixes, settings,
          valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, ''), '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
-    // Likewise the prefixes: `x + '.'` built inside the per-setting test is one string per setting
-    // per prefix. Built once here, the test below only compares.
-    WITH props, settings, [x IN open | x + '.'] AS openDot,
-         [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
-         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
-    WITH props, settings, openDot, ownPrefixes, valueKeys, [x IN ownPrefixes | x + '.'] AS ownDot
     UNWIND settings AS s
-    WITH s, props, openDot, ownPrefixes, ownDot, valueKeys,
+    WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
+         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys,
          toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
-    WITH s, base, [x IN props WHERE x.k = base][0].p AS match, ownPrefixes, ownDot, valueKeys, openDot
-    WHERE NOT base IN ownPrefixes AND NOT ANY(x IN ownDot WHERE base STARTS WITH x)
-      AND NOT base IN valueKeys
-      AND NOT ANY(x IN openDot WHERE base STARTS WITH x)
+    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = base][0] AS match
+    WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
+      AND NOT ANY(x IN valueKeys WHERE base = x)
+      AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
       AND (match IS NULL OR match.deprecated)
     RETURN 'config:' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
            CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'medium'
