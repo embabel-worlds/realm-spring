@@ -1,0 +1,45 @@
+# DESIGN QUESTIONS: how the application is put together, asked of its declarations. Each is a view
+# because it is asked often; any of them could be written as a one-off query over the same labels.
+
+- name: ControllersUsingRepositories
+  description: >-
+    SELECT THIS for "which controllers talk to a repository directly", "which controllers skip the
+    service layer", "where is persistence reached from the web layer". Every controller
+    (@Controller or @RestController) that injects a repository: a Spring Data repository interface
+    or a class annotated @Repository. One row per controller and repository, with how it is
+    injected and the controller's file and line, and how many endpoints the controller serves. In
+    Java, Kotlin and Scala. Matched by type name as written; a repository reached through a
+    service is not listed, which is the point. Whether this is a problem is a matter of house
+    style: it is normal in a small application and usually unwanted in a layered one.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method', 'function']
+    WITH collect(d) AS all
+    WITH all,
+         [x IN all WHERE x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Controller', 'RestController']) | x.name] AS controllers,
+         [x IN all WHERE (x.kind = 'interface' AND x.signature CONTAINS 'Repository<') OR (x.kind IN ['class', 'object', 'interface'] AND 'Repository' IN x.annotations) | x.name] AS repositories,
+         [x IN all WHERE x.kind IN ['method', 'function'] AND ANY(a IN x.annotations WHERE a ENDS WITH 'Mapping') | last(split(coalesce(x.owner, ''), '.'))] AS handlerOwners
+    UNWIND all AS d
+    WITH d, controllers, repositories, handlerOwners, last(split(coalesce(d.owner, ''), '.')) AS ownerName
+    WHERE (d.kind = 'constructor' AND ownerName IN controllers)
+       OR (d.kind = 'class' AND d.language <> 'java' AND d.signature CONTAINS '(' AND d.name IN controllers)
+       OR (d.kind = 'field' AND ownerName IN controllers AND ANY(a IN d.annotations WHERE a IN ['Autowired', 'Inject', 'Resource']))
+    WITH d, repositories, handlerOwners, CASE WHEN d.kind = 'class' THEN d.name ELSE ownerName END AS controller, split(d.signature, ') :')[0] AS head
+    WITH d, repositories, handlerOwners, controller,
+         CASE WHEN d.kind = 'field' THEN d.signature ELSE substring(head, size(split(head, '(')[0]) + 1) END AS asked
+    UNWIND split(asked, ',') AS piece
+    WITH d, repositories, handlerOwners, controller, trim(replace(piece, ')', '')) AS piece
+    WITH d, repositories, handlerOwners, controller, piece, split(piece, ' ') AS tokens
+    WITH d, repositories, handlerOwners, controller,
+         replace(CASE WHEN d.language <> 'java' AND piece CONTAINS ':' THEN trim(split(last(split(piece, ':')), '=')[0])
+                      WHEN d.language = 'java' AND size(tokens) >= 2 THEN tokens[size(tokens) - 2]
+                      ELSE '' END, '?', '') AS written
+    WITH d, handlerOwners, controller, split(written, '<')[0] AS type, repositories
+    WHERE type IN repositories
+    RETURN controller, type AS repository,
+           CASE d.kind WHEN 'field' THEN 'field' ELSE 'constructor' END AS injectedBy,
+           size([o IN handlerOwners WHERE o = controller]) AS endpoints,
+           d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY controller, repository LIMIT 5000
