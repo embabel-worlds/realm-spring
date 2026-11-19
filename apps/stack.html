@@ -347,21 +347,39 @@ RETURN &#x27;vulnerable:&#x27; + coordinates AS id,
             ELSE &#x27;No fix on your &#x27; + line + &#x27; line: move to a newer line (see the Upgrade tab).&#x27; END AS fix,
        coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
 ORDER BY cvss DESC LIMIT 500</pre></details>
-  <details><summary><b>GradleStackCard</b> — StackCard for a GRADLE project whose build file is build.gradle.kts (the Kotlin DSL): the Spring Boot version its plugins block applies, the Boot line and when that line&#x27;s open-source and commercial support end, the Java versions the line supports, its latest patch, and the newest line. Use it when StackCard returns no Boot version because the project has no pom.xml. Read from the build file as written: a version held in a variable, a version catalogue or a settings plugin is not followed, and a Groovy build.gradle is not read. Spring Framework&#x27;s version is not given (Boot manages it).</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:BUILD_CALLS]-&gt;(c:SpringBuildCall)
-WHERE c.method = &#x27;plugins&#x27; AND (c.path = &#x27;build.gradle.kts&#x27; OR c.path ENDS WITH &#x27;/build.gradle.kts&#x27;) AND c.arguments[0] CONTAINS &#x27;org.springframework.boot&quot;) version &quot;&#x27;
-WITH split(split(c.arguments[0], &#x27;org.springframework.boot&quot;) version &quot;&#x27;)[1], &#x27;&quot;&#x27;)[0] AS bootVersion, c.path AS path ORDER BY size(path) LIMIT 1
-WITH bootVersion, null AS frameworkVersion
-WITH bootVersion, frameworkVersion, split(bootVersion, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(bootVersion, &#x27;.&#x27;)[1] AS line
+  <details><summary><b>GradleStackCard</b> — StackCard for a GRADLE project, whether its build files are Groovy (build.gradle) or Kotlin (build.gradle.kts): the Spring Boot version the build applies, the Boot line and when that line&#x27;s open-source and commercial support end, the Java versions the line supports, its latest patch, and the newest line. Use it when StackCard returns no Boot version because the project has no pom.xml. The version is found where builds keep it: on the plugin&#x27;s line, on the buildscript classpath, in a version catalogue (gradle/libs.versions.toml), or, when the build names a variable, in gradle.properties, ext or a val; `heldIn` names that variable. Read from the build as written, nothing is evaluated: a version computed in code or set by a settings plugin is not found. Spring Framework&#x27;s version is not given (Boot manages it).</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:BUILD_LINES]-&gt;(l:SpringBuildLine)
+WITH l, CASE WHEN l.format = &#x27;toml&#x27; THEN replace(l.text, &#x27; &#x27;, &#x27;&#x27;)
+             ELSE trim(replace(replace(replace(replace(replace(l.text, &quot;&#x27;&quot;, &#x27;&quot;&#x27;), &#x27;(&#x27;, &#x27; &#x27;), &#x27;)&#x27;, &#x27; &#x27;), &#x27;  &#x27;, &#x27; &#x27;), &#x27;  &#x27;, &#x27; &#x27;)) END AS t
+WITH collect({path: l.path, line: l.line, block: l.block, format: l.format, link: l.link, t: t}) AS lines
+WITH lines,
+     [x IN lines WHERE x.format &lt;&gt; &#x27;toml&#x27; AND x.t CONTAINS &#x27;org.springframework.boot&quot; version &#x27; | split(trim(split(x.t, &#x27;org.springframework.boot&quot; version &#x27;)[1]), &#x27; &#x27;)[0]] AS direct,
+     [x IN lines WHERE x.format &lt;&gt; &#x27;toml&#x27; AND x.t CONTAINS &#x27;spring-boot-gradle-plugin:&#x27; | split(split(x.t, &#x27;spring-boot-gradle-plugin:&#x27;)[1], &#x27;&quot;&#x27;)[0]] AS classpath,
+     [x IN lines WHERE x.format = &#x27;toml&#x27; AND x.t CONTAINS &#x27;&quot;org.springframework.boot&quot;&#x27; AND x.t CONTAINS &#x27;version&#x27; | x.t] AS catalogue
+WITH lines,
+     CASE WHEN size(direct) &gt; 0 THEN direct[0]
+          WHEN size(classpath) &gt; 0 THEN classpath[0]
+          WHEN size(catalogue) &gt; 0 AND catalogue[0] CONTAINS &#x27;ref=&quot;&#x27; THEN split(split(catalogue[0], &#x27;ref=&quot;&#x27;)[1], &#x27;&quot;&#x27;)[0]
+          WHEN size(catalogue) &gt; 0 AND catalogue[0] CONTAINS &#x27;version=&quot;&#x27; THEN split(split(catalogue[0], &#x27;version=&quot;&#x27;)[1], &#x27;&quot;&#x27;)[0]
+          ELSE &#x27;&#x27; END AS asWritten
+WITH lines, replace(replace(replace(replace(asWritten, &#x27;&quot;&#x27;, &#x27;&#x27;), &#x27;$&#x27;, &#x27;&#x27;), &#x27;{&#x27;, &#x27;&#x27;), &#x27;}&#x27;, &#x27;&#x27;) AS written
+WHERE written &lt;&gt; &#x27;&#x27;
+/* A version starts with a digit; anything else is a name, looked up where builds keep them: gradle.properties, ext, a val, a catalogue&#x27;s versions. */
+WITH written, left(written, 1) IN [&#x27;0&#x27;, &#x27;1&#x27;, &#x27;2&#x27;, &#x27;3&#x27;, &#x27;4&#x27;, &#x27;5&#x27;, &#x27;6&#x27;, &#x27;7&#x27;, &#x27;8&#x27;, &#x27;9&#x27;] AS literal,
+     [x IN lines WHERE ANY(start IN [written + &#x27;=&#x27;, &#x27;ext.&#x27; + written + &#x27;=&#x27;, &#x27;val&#x27; + written + &#x27;=&#x27;, &#x27;def&#x27; + written + &#x27;=&#x27;, &#x27;extra[&quot;&#x27; + written + &#x27;&quot;]=&#x27;, &#x27;set&quot;&#x27; + written + &#x27;&quot;,&quot;&#x27;] WHERE replace(x.t, &#x27; &#x27;, &#x27;&#x27;) STARTS WITH start)
+        | replace(replace(last(split(replace(x.t, &#x27; &#x27;, &#x27;&#x27;), CASE WHEN replace(x.t, &#x27; &#x27;, &#x27;&#x27;) STARTS WITH &#x27;set&quot;&#x27; THEN &#x27;,&#x27; ELSE &#x27;=&#x27; END)), &#x27;&quot;&#x27;, &#x27;&#x27;), &#x27;;&#x27;, &#x27;&#x27;)] AS found
+WITH CASE WHEN literal THEN written ELSE found[0] END AS bootVersion, CASE WHEN literal THEN null ELSE written END AS heldIn
+WHERE bootVersion IS NOT NULL
+WITH bootVersion, heldIn, null AS frameworkVersion, split(bootVersion, &#x27;.&#x27;)[0] + &#x27;.&#x27; + split(bootVersion, &#x27;.&#x27;)[1] AS line
 MATCH (sp:SpringProduct {slug: &#x27;spring-boot&#x27;})-[:HAS_GENERATION]-&gt;(g:SpringGeneration)
-WITH bootVersion, frameworkVersion, line, sp, collect(g) AS gens, toString(date()) AS today
+WITH bootVersion, heldIn, frameworkVersion, line, sp, collect(g) AS gens, toString(date()) AS today
 MATCH (sp)-[:HAS_CYCLE]-&gt;(c:SupportCycle)
-WITH bootVersion, frameworkVersion, line, gens, today, collect(c) AS cycles
-WITH bootVersion, frameworkVersion, line, today,
+WITH bootVersion, heldIn, frameworkVersion, line, gens, today, collect(c) AS cycles
+WITH bootVersion, heldIn, frameworkVersion, line, today,
      [x IN gens WHERE x.name = line + &#x27;.x&#x27;][0] AS mine,
      [x IN cycles WHERE x.cycle = line][0] AS myCycle,
      reduce(n = null, x IN gens | CASE WHEN x.initialReleaseDate &lt;= today
             AND (n IS NULL OR x.initialReleaseDate &gt; n.initialReleaseDate) THEN x ELSE n END) AS newest
-RETURN bootVersion, frameworkVersion, line + &#x27;.x&#x27; AS bootLine,
+RETURN bootVersion, frameworkVersion, line + &#x27;.x&#x27; AS bootLine, heldIn,
        mine.ossSupportEndDate AS ossSupportEnds, mine.commercialSupportEndDate AS commercialSupportEnds,
        CASE WHEN mine IS NULL THEN &#x27;unknown&#x27;
             WHEN mine.ossSupportEndDate &gt;= today THEN &#x27;supported&#x27;
@@ -611,14 +629,14 @@ RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
        f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
 ORDER BY CASE f[1] WHEN &#x27;warning&#x27; THEN 0 ELSE 1 END, code, path, line LIMIT 5000</pre></details>
   <details><summary><b>Docs</b> — SELECT THIS for &quot;what do the docs say about X&quot; when the answer may be in Spring&#x27;s documentation, in the project&#x27;s own documents, or in what the team has added. Passages closest in meaning to the words given, from three places: Spring&#x27;s documentation (the reference manuals for Spring Boot, Framework and Security, the migration guides and release notes); the project&#x27;s own Markdown and AsciiDoc files; and documents someone added on the Spring page for this project. Each with where it is from, the page, its title, the passage and how close it is.</summary><pre class="mono">MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]-&gt;(h:SpringDocHit)
-WITH h, r, CASE WHEN $project STARTS WITH &#x27;https://github.com/&#x27; THEN &#x27;https://raw.githubusercontent.com/&#x27; + substring($project, 19) + &#x27;/&#x27; ELSE &#x27;~none~&#x27; END AS own,
+WITH h, r, &#x27;project-doc://&#x27; + CASE WHEN $project = &#x27;&#x27; THEN &#x27;~none~&#x27; WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; AS own,
      &#x27;spring-notes://&#x27; + CASE WHEN $project = &#x27;&#x27; THEN &#x27;~none~&#x27; WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;/&#x27; AS added
 WHERE &#x27;spring-docs&#x27; IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
 RETURN CASE WHEN h.uri STARTS WITH added THEN &#x27;Added by your team&#x27; WHEN h.uri STARTS WITH own THEN &#x27;This project\&#x27;s documents&#x27; ELSE &#x27;Spring documentation&#x27; END AS source,
        CASE WHEN h.title STARTS WITH &#x27;&lt;&#x27; THEN h.uri ELSE h.title END AS title, h.uri AS page, r.snippet AS passage, r.score AS score
 ORDER BY score DESC LIMIT 10</pre></details>
   <details><summary><b>DocsAnswer</b> — SELECT THIS for a written answer to a Spring question, from documentation. An answer to the question, written by the appliance&#x27;s model from the six passages closest to it in Spring&#x27;s documentation, the project&#x27;s own documents and what the team added, citing each passage it relies on by its number ([1], [2]); with the passages it was given, in that order. It answers only from those passages and says so when they do not cover the question. One model call.</summary><pre class="mono">MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]-&gt;(h:SpringDocHit)
-WITH h, r, CASE WHEN $project STARTS WITH &#x27;https://github.com/&#x27; THEN &#x27;https://raw.githubusercontent.com/&#x27; + substring($project, 19) + &#x27;/&#x27; ELSE &#x27;~none~&#x27; END AS own,
+WITH h, r, &#x27;project-doc://&#x27; + CASE WHEN $project = &#x27;&#x27; THEN &#x27;~none~&#x27; WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;!&#x27; AS own,
      &#x27;spring-notes://&#x27; + CASE WHEN $project = &#x27;&#x27; THEN &#x27;~none~&#x27; WHEN $project STARTS WITH &#x27;https://&#x27; THEN substring($project, 8) ELSE $project END + &#x27;/&#x27; AS added
 WHERE &#x27;spring-docs&#x27; IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
 WITH h, r ORDER BY r.score DESC LIMIT 6

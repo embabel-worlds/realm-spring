@@ -304,6 +304,22 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
 
+- name: SpringBuildLine
+  visibility: internal
+  userAnchor: false
+  description: "One non-blank line of a project's Gradle build as written: its build and settings scripts (Groovy or Kotlin), gradle.properties and version catalogues, with the block the line is in (plugins, dependencies, subprojects.dependencies; a catalogue's versions, libraries, plugins). Reach it from (:JavaProject {key})-[:BUILD_LINES]->."
+  virtualJoins:
+    - { anchorLabel: JavaProject, relationship: BUILD_LINES, keyField: key, recordKeyField: anchorKey, producer: springBuildLines, maxFanoutTotal: 200000,
+        description: "(:JavaProject {key:$project})-[:BUILD_LINES]->(l:SpringBuildLine)" }
+  properties:
+    id: { identity: true, description: "`<project>!<path>:<line>`." }
+    path: "File path, relative to the project."
+    line: { type: int, description: "Line it is on." }
+    text: "The line, trimmed."
+    block: "The block it is in, outermost first, joined by dots; empty at the top level. In a version catalogue, its section."
+    format: "groovy, kotlin, toml or properties."
+    link: "The line on the repository's host, when it has a file view."
+
 - name: SpringIssue
   visibility: internal
   userAnchor: false

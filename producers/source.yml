@@ -12,3 +12,6 @@
 
 # The written documents of a project kept on the Spring page, with their text, to index for search.
 - { name: springProjectDocuments, kind: source-tree, emit: documents, maxFileKb: 512 }
+
+# A Gradle build as written, line by line with the block each line is in: Groovy and Kotlin build files, gradle.properties, version catalogues.
+- { name: springBuildLines, kind: source-tree, emit: buildFiles }
