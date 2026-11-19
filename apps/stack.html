@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -68,6 +68,17 @@
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
   details summary{cursor:pointer;color:var(--dim);margin:12px 0 8px}
   #how-it-works{display:none;margin-top:26px} #how-it-works:target{display:block} #how-it-works pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--dim)} #how-it-works p{color:var(--dim)} #how-it-works summary{color:var(--text);margin:6px 0}
+  .minehead{font-size:12px;color:var(--dim);margin:2px 0 6px} .mine{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+  .mine .proj{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 10px;cursor:pointer}
+  .mine .proj:hover{border-color:var(--green)} .mine .proj b{font-size:13px} .mine .proj .m{font-size:11.5px;color:var(--dim)}
+  .mine .proj .x{border:0;background:none;color:var(--dim);cursor:pointer;padding:0 2px;font-size:14px} .mine .proj .x:hover{color:var(--red)}
+  .mine .proj.cur{border-color:var(--green)}
+  details.samples summary{font-size:12px;margin:0 0 6px}
+  .outcome{font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--dim)} .outcome b{color:var(--text)}
+  .outcome .bad{color:var(--amber)}
+  .crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px} .crumbs a{cursor:pointer} .crumbs span{color:var(--dim)}
+  table.nav tr.go{cursor:pointer} table.nav tr.go:hover td{background:var(--surface)}
+  .spin{display:inline-block;color:var(--amber);animation:pulse 1.2s infinite;margin-right:6px}
   footer{color:var(--dim);font-size:12px;margin-top:28px;line-height:1.6}
 </style>
 </head>
@@ -83,7 +94,8 @@
     <input id="project" placeholder="https://github.com/owner/repo  ·  …@tag or @branch  ·  or a folder in your workspace" autocomplete="off" spellcheck="false">
     <button class="primary" type="submit">Analyze</button>
   </form>
-  <div class="chips" id="chips"></div>
+  <div id="mine"></div>
+  <div id="samples"></div>
 
   <div id="report" hidden>
     <div class="progress" id="progress"></div>
@@ -422,7 +434,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   var CATEGORY = { 'upgrade-blocker': 'Upgrade blockers', 'vulnerability': 'Vulnerabilities', 'configuration': 'Configuration',
                    'dependencies': 'Dependencies', 'design': 'Design', 'testing': 'Testing', 'modernize': 'Modernize', 'support': 'Support' };
   var state = { project: null, stack: null, lines: [], findings: [], triage: {}, beans: null, profiles: null, target: null,
-                upgrade: null, tab: 'inbox', filter: null, showDecided: false };
+                upgrade: null, tab: 'inbox', filter: null, showDecided: false, mine: null, modules: null, nav: { level: 'modules' }, loading: {} };
 
   function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function rowsOf(r) {
@@ -445,6 +457,14 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     });
   }
   function $(id) { return document.getElementById(id); }
+  /* Why a check did not complete, in a sentence a reader can act on. */
+  function reason(e) {
+    var m = String(e && (e.message || e.error || (typeof e === 'string' ? e : '')) || '').replace(/\s+/g, ' ').trim();
+    if (/work budget/.test(m)) return 'Could not complete: this project is too large for the check as it is written (the query ran out of its work budget)';
+    if (/INCOMPLETE_RANKING|maxFanoutTotal/.test(m)) return 'Could not complete: the project has more rows than this check is allowed to read';
+    if (!m) return 'Could not complete, and the appliance gave no reason';
+    return 'Could not complete: ' + (m.length > 220 ? m.slice(0, 220) + '…' : m);
+  }
 
   /* ── progress: which checks are done, what the running ones are doing, and for how long ── */
   var STEPS = [
@@ -474,15 +494,31 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     STEPS.forEach(function (s) { total += s[2]; var p = prog[s[0]]; if (p.state === 'done' || p.state === 'fail') done += s[2]; if (p.start && (!first || p.start < first)) first = p.start; });
     var pct = Math.round(100 * done / total), finished = done === total;
     $('progress').className = 'progress' + (finished ? ' finished' : '');
-    $('progress').innerHTML = '<div class="ptop"><b>' + (finished ? 'Done' : 'Reading the project') + ' — ' + pct + '% of checks complete</b><span>' +
+    var failed = STEPS.filter(function (s) { return prog[s[0]].state === 'fail'; }).length;
+    if (finished && !state.saved && state.stack) { state.saved = true; remember(failed); }
+    $('progress').innerHTML = '<div class="ptop"><b>' + (!finished ? 'Reading the project — ' + pct + '% of checks complete'
+      : failed ? 'Finished — ' + failed + ' of ' + STEPS.length + ' checks could not complete' : 'Done — all ' + STEPS.length + ' checks completed') + '</b><span>' +
       (first ? Math.round(((finished ? Math.max.apply(null, STEPS.map(function (s) { return prog[s[0]].end || 0; })) : now) - first) / 1000) + ' s' : '') + '</span></div>' +
       '<div class="bar"><i style="width:' + pct + '%"></i></div>' +
+      (finished ? outcome() : '') +
       STEPS.map(function (s) {
         var p = prog[s[0]], secs = p.start ? Math.round(((p.end || now) - p.start) / 1000) + ' s' : '';
         var ic = { wait: '○', run: '●', done: '✓', fail: '✕' }[p.state];
         var what = p.state === 'run' ? s[3]() : (p.note || (p.state === 'wait' ? 'waiting' : p.state === 'done' ? 'done' : 'could not complete'));
         return '<div class="step ' + p.state + '"><span class="ic">' + ic + '</span><span><b>' + esc(s[1]) + '</b> <span class="what">— ' + esc(what) + '</span></span><span class="tm">' + secs + '</span></div>';
       }).join('');
+  }
+  /* What was read, said once the checks are over, so there is no doubt whether it worked. */
+  function outcome() {
+    var o = state.overview, s = state.stack, bits = [];
+    if (o) bits.push('Read <b>' + esc(o.project) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
+    else if (s) bits.push('Read <b>' + esc(state.project) + '</b>');
+    var k = kotlinFiles();
+    if (k) bits.push('<span class="bad">This project has ' + k + ' Kotlin source files. Beans, endpoints, transactions and code rules are read from Java source only, so for this project they are incomplete.</span>');
+    return bits.length ? '<div class="outcome">' + bits.join('<br>') + '</div>' : '';
+  }
+  function kotlinFiles() {
+    return (state.modules || []).reduce(function (n, m) { return n + ((m.languages || []).indexOf('kt') >= 0 ? (m.mainFiles || 0) : 0); }, 0);
   }
   setInterval(function () { if (state.project && Object.keys(prog).some(function (k) { return prog[k].state === 'run'; })) drawProgress(); }, 1000);
 
@@ -499,7 +535,9 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (!key) return;
     $('project').value = key;
     if (location.hash !== '#project=' + encodeURIComponent(key)) history.replaceState(null, '', '#project=' + encodeURIComponent(key));
-    state = Object.assign(state, { overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    state = Object.assign(state, { saved: false, modules: null, nav: { level: 'modules' }, loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
+    drawMine();
     $('report').hidden = false; steps(); renderStack(); render();
     mark('code', 'run');
     var first = function () { return view('StackCard', { project: key }); };
@@ -513,6 +551,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
         state.overview = rows[0] || null;
         if (state.overview) mark('code', 'done', state.overview.moduleCount + ' module(s), ' + state.overview.types + ' types, ' + state.overview.settings + ' settings, ' + state.overview.dependencies + ' dependencies');
       }).catch(function () {});
+      view('ModuleSources', { project: key }).then(function (rows) { if (key === state.project) { state.modules = rows; drawProgress(); if (state.tab === 'structure') render(); } }).catch(function () {});
       renderStack();
       supportFinding();
       return Promise.all([loadLines(), loadTriage()]);
@@ -536,7 +575,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     return view(name, params).then(function (rows) {
       if (key !== state.project) return;
       add(rows); if (step) mark(step, 'done'); render();
-    }).catch(function (e) { if (step) mark(step, 'fail'); console.warn(name, e); });
+    }).catch(function (e) { if (step) mark(step, 'fail', reason(e)); console.warn(name, e); });
   }
   function add(rows) {
     var seen = {}; state.findings.forEach(function (f) { seen[f.id] = true; });
@@ -559,21 +598,30 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
 
   /* ── upgrade target ── */
+  function cmpVersion(a, b) {
+    var x = String(a).split('.'), y = String(b).split('.');
+    for (var i = 0; i < Math.max(x.length, y.length); i++) { var d = (parseInt(x[i], 10) || 0) - (parseInt(y[i], 10) || 0); if (d) return d; }
+    return 0;
+  }
+  /* The release to move to: one NEWER than what the project runs. Already on the newest supported patch, there is none. */
   function pickTarget() {
-    var supported = state.lines.filter(function (l) { return l.support === 'supported' && l.latestPatch; });
-    var s = state.stack;
-    var major = s && s.bootVersion ? Number(s.bootVersion.split('.')[0]) : null;
-    var sameMajor = supported.filter(function (l) { return Number(l.line.split('.')[0]) === major; });
-    var t = (sameMajor[0] || supported[supported.length - 1] || supported[0]);
+    var s = state.stack, cur = s && s.bootVersion;
+    var newer = state.lines.filter(function (l) { return l.support === 'supported' && l.latestPatch && (!cur || cmpVersion(l.latestPatch, cur) > 0); })
+      .sort(function (a, b) { return cmpVersion(a.latestPatch, b.latestPatch); });
+    var major = cur ? Number(cur.split('.')[0]) : null;
+    var sameMajor = newer.filter(function (l) { return Number(l.line.split('.')[0]) === major; });
+    var t = sameMajor[sameMajor.length - 1] || newer[0];
     if (major !== null && major < 3) {
       var three = state.lines.filter(function (l) { return l.line.indexOf('3.') === 0 && l.latestPatch; })[0];
       if (three) t = three;
     }
     state.target = t ? t.latestPatch : null;
+    state.upToDate = !!cur && !t;
     renderStack();
   }
   function loadUpgrade() {
-    if (!state.target) { mark('upgrade', 'fail', 'No target'); return; }
+    if (state.upToDate) { state.upgrade = []; mark('upgrade', 'done', 'Already on the newest supported release, Spring Boot ' + state.stack.bootVersion + ' — nothing to upgrade to'); render(); return; }
+    if (!state.target) { mark('upgrade', 'fail', 'Could not complete: no supported Spring Boot release was found to compare with'); return; }
     mark('upgrade', 'run', 'Upgrade path → ' + state.target);
     var key = state.project, target = state.target;
     var upgrade = function () { return view('UpgradeConfiguration', { project: key, target: target }); };
@@ -602,12 +650,13 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       stat('Newest line', s.newestLine || '—', s.newestSupportEnds ? 'supported until ' + s.newestSupportEnds : '')
     ].join('');
     $('recommend').innerHTML = state.target ? 'Upgrade target: <b>Spring Boot ' + esc(state.target) + '</b>' +
-      (java && java.javaVersions ? ' — needs Java ' + esc(java.javaVersions) : '') + '. Change it on the Upgrade tab.' : '';
+      (java && java.javaVersions ? ' — needs Java ' + esc(java.javaVersions) : '') + '. Change it on the Upgrade tab.'
+      : state.upToDate ? 'On the newest supported release. There is nothing to upgrade to.' : '';
   }
   function stat(k, v, n) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div><div class="n">' + esc(n) + '</div></div>'; }
 
   /* ── tabs ── */
-  var TABS = [['inbox', 'Debt inbox'], ['upgrade', 'Upgrade'], ['deps', 'Dependencies'], ['beans', 'Beans'], ['profiles', 'Profiles'], ['runtime', 'Runtime']];
+  var TABS = [['inbox', 'Debt inbox'], ['upgrade', 'Upgrade'], ['deps', 'Dependencies'], ['structure', 'Structure'], ['beans', 'Beans'], ['profiles', 'Profiles'], ['runtime', 'Runtime']];
   function open() { return state.findings.filter(function (f) { return !state.triage[f.id] || state.triage[f.id].status === 'snoozed' && false; }); }
   function render() {
     var openCount = state.findings.filter(function (f) { return !state.triage[f.id]; }).length;
@@ -615,7 +664,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       var c = t[0] === 'inbox' ? '<span class="count">' + openCount + '</span>' : '';
       return '<button data-tab="' + t[0] + '" class="' + (state.tab === t[0] ? 'on' : '') + '">' + t[1] + c + '</button>';
     }).join('');
-    ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
+    ({ inbox: renderInbox, upgrade: renderUpgrade, deps: renderDeps, structure: renderStructure, beans: renderBeans, profiles: renderProfiles, runtime: renderRuntime })[state.tab]();
   }
   $('tabs').addEventListener('click', function (e) { var b = e.target.closest('button[data-tab]'); if (b) { state.tab = b.dataset.tab; render(); } });
 
@@ -671,7 +720,9 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
 
   function renderUpgrade() {
-    var options = state.lines.filter(function (l) { return l.latestPatch && l.support !== 'unsupported'; });
+    var cur = state.stack && state.stack.bootVersion;
+    if (state.upToDate) { $('panel').innerHTML = '<div class="empty">This project runs Spring Boot ' + esc(cur) + ', the newest supported release. There is nothing to upgrade to.</div>'; return; }
+    var options = state.lines.filter(function (l) { return l.latestPatch && l.support !== 'unsupported' && (!cur || cmpVersion(l.latestPatch, cur) > 0); });
     var blockers = state.findings.filter(function (f) { return f.category === 'upgrade-blocker' && !state.triage[f.id]; }).sort(bySeverity);
     var target = state.lines.filter(function (l) { return l.latestPatch === state.target; })[0];
     $('panel').innerHTML = '<div class="row">Upgrade to <select id="target">' + options.map(function (l) {
@@ -726,13 +777,81 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     }).join('') + '</table>';
   }
   function at(r) { return r.link ? '<a class="mono" target="_blank" rel="noopener" href="' + esc(r.link) + '">' + esc(r.file) + ':' + esc(r.line) + '</a>' : '<span class="mono">' + esc(r.file) + ':' + esc(r.line) + '</span>'; }
+  /*
+   * A panel that is still being read: what is being read and for how long, redrawn every second, and
+   * the reason if it fails. `key` is the state slot the rows land in.
+   */
+  function waiting(key, label, doing, load) {
+    var w = state.loading[key];
+    if (!w) {
+      w = state.loading[key] = { start: Date.now(), error: null, project: state.project };
+      load().then(function (rows) { if (w.project !== state.project) return; state[key] = rows; delete state.loading[key]; render(); })
+        .catch(function (e) { w.error = reason(e); if (w.project === state.project) render(); });
+    }
+    if (w.error) {
+      $('panel').innerHTML = '<div class="note warn">' + esc(label) + ': ' + esc(w.error) + '. <a id="retry" style="cursor:pointer">Try again</a></div>';
+      $('retry').addEventListener('click', function () { delete state.loading[key]; render(); });
+      return;
+    }
+    $('panel').innerHTML = '<div class="empty"><span class="spin">●</span>' + esc(doing) + ' — ' + Math.round((Date.now() - w.start) / 1000) + ' s</div>';
+  }
+  setInterval(function () { if (Object.keys(state.loading).some(function (k) { return !state.loading[k].error; })) render(); }, 1000);
+
+  /* ── structure: project → module → package → file ── */
+  function go(nav) { state.nav = nav; render(); }
+  function crumbs() {
+    var n = state.nav, name = (state.overview && state.overview.project) || state.project, out = [];
+    out.push(n.level === 'modules' ? '<b>' + esc(name) + '</b>' : '<a data-nav="modules">' + esc(name) + '</a>');
+    if (n.level !== 'modules') out.push(n.level === 'packages' ? '<b>' + esc(n.module || '(root)') + '</b>' : '<a data-nav="packages">' + esc(n.module || '(root)') + '</a>');
+    if (n.level === 'files') out.push('<b>' + esc(n.pkg || '(default package)') + '</b> <span>' + esc(n.set) + '</span>');
+    return '<div class="crumbs">' + out.join('<span>›</span>') + '</div>';
+  }
+  function renderStructure() {
+    var n = state.nav, body;
+    if (n.level === 'modules') {
+      if (!state.modules) { waiting('modules', 'Modules', 'Reading the Maven modules and counting their source files', function () { return view('ModuleSources', { project: state.project }); }); return; }
+      var ms = state.modules;
+      body = '<div class="sub" style="margin-bottom:10px">' + ms.length + ' Maven module(s). Source files are counted under <span class="mono">src/main</span> and <span class="mono">src/test</span>.</div>' +
+        '<table class="nav"><tr><th>Module</th><th>Coordinates</th><th>Packaging</th><th>Main files</th><th>Test files</th><th>Languages</th></tr>' + ms.map(function (m, i) {
+          var has = (m.mainFiles || 0) + (m.testFiles || 0) > 0;
+          return '<tr class="' + (has ? 'go' : '') + '" data-module="' + i + '"><td><b>' + esc(m.module || '(root)') + '</b></td><td class="mono">' + esc(m.coordinates) + '</td><td>' + esc(m.packaging) +
+            '</td><td>' + esc(m.mainFiles) + '</td><td>' + esc(m.testFiles) + '</td><td>' + esc((m.languages || []).join(', ')) + '</td></tr>';
+        }).join('') + '</table>';
+    } else if (n.level === 'packages') {
+      var pk = 'pk:' + n.module;
+      if (!state[pk]) { waiting(pk, 'Packages', 'Reading the packages of ' + (n.module || 'the root module'), function () { return view('ModulePackages', { project: state.project, module: n.module }); }); return; }
+      var rows = state[pk];
+      body = '<div class="sub" style="margin-bottom:10px">' + rows.length + ' package(s) in this module, main and test listed separately.</div>' +
+        (rows.length ? '<table class="nav"><tr><th>Package</th><th>Source set</th><th>Files</th><th>Languages</th></tr>' + rows.map(function (r, i) {
+          return '<tr class="go" data-pkg="' + i + '"><td class="mono">' + esc(r.package || '(default package)') + '</td><td>' + esc(r.sourceSet) + '</td><td>' + esc(r.files) + '</td><td>' + esc((r.languages || []).join(', ')) + '</td></tr>';
+        }).join('') + '</table>' : '<div class="empty">No source files under src/ in this module.</div>');
+    } else {
+      var fk = 'fl:' + n.module + ':' + n.set + ':' + n.pkg;
+      if (!state[fk]) { waiting(fk, 'Files', 'Reading the files of ' + (n.pkg || 'the default package'), function () { return view('PackageFiles', { project: state.project, module: n.module, package: n.pkg, sourceSet: n.set }); }); return; }
+      var fs = state[fk];
+      body = '<div class="sub" style="margin-bottom:10px">' + fs.length + ' file(s).</div>' + table(fs, [
+        ['file', 'File', function (r) { return r.link ? '<a class="mono" target="_blank" rel="noopener" href="' + esc(r.link) + '">' + esc(r.file) + '</a>' : '<span class="mono">' + esc(r.file) + '</span>'; }],
+        ['language', 'Language'], ['path', 'Path', function (r) { return '<span class="mono">' + esc(r.path) + '</span>'; }]]);
+    }
+    $('panel').innerHTML = crumbs() + body;
+  }
+  $('panel').addEventListener('click', function (e) {
+    if (state.tab !== 'structure') return;
+    var a = e.target.closest('a[data-nav]'), m = e.target.closest('tr[data-module]'), p = e.target.closest('tr[data-pkg]');
+    if (a) return go(a.dataset.nav === 'modules' ? { level: 'modules' } : { level: 'packages', module: state.nav.module });
+    if (m && m.classList.contains('go')) return go({ level: 'packages', module: state.modules[Number(m.dataset.module)].module || '' });
+    if (p) { var r = state['pk:' + state.nav.module][Number(p.dataset.pkg)]; go({ level: 'files', module: state.nav.module, pkg: r.package || '', set: r.sourceSet }); }
+  });
+
   function renderBeans() {
-    if (!state.beans) { $('panel').innerHTML = '<div class="empty">Reading beans…</div>'; view('Beans', { project: state.project }).then(function (r) { state.beans = r; render(); }); return; }
-    $('panel').innerHTML = '<div class="sub" style="margin-bottom:10px">' + state.beans.length + ' beans declared in source. Paste /actuator/beans on the Runtime tab to see what actually got created.</div>' +
+    if (!state.beans) { waiting('beans', 'Beans', 'Reading every @Bean method and stereotype annotation in the project’s Java source', function () { return view('Beans', { project: state.project }); }); return; }
+    var k = kotlinFiles();
+    $('panel').innerHTML = (k ? '<div class="note warn">Incomplete: this project has ' + k + ' Kotlin source files, and beans are read from Java source only. The beans below are the ones declared in Java.</div>' : '') +
+      '<div class="sub" style="margin-bottom:10px">' + state.beans.length + ' beans declared in Java source. Paste /actuator/beans on the Runtime tab to see what actually got created.</div>' +
       table(state.beans, [['bean', 'Bean', function (r) { return '<span class="mono">' + esc(r.bean) + '</span>'; }], ['declaredBy', 'Declared by'], ['profiles', 'Profiles'], ['conditions', 'Conditions'], ['file', 'Where', at]]);
   }
   function renderProfiles() {
-    if (!state.profiles) { $('panel').innerHTML = '<div class="empty">Reading profiles…</div>'; view('Profiles', { project: state.project }).then(function (r) { state.profiles = r; render(); }); return; }
+    if (!state.profiles) { waiting('profiles', 'Profiles', 'Reading profile-specific files and @Profile annotations', function () { return view('Profiles', { project: state.project }); }); return; }
     $('panel').innerHTML = table(state.profiles.slice().sort(function (a, b) { return String(a.profile).localeCompare(String(b.profile)); }),
       [['profile', 'Profile', function (r) { return '<b>' + esc(r.profile) + '</b>'; }], ['where', 'Used in'], ['what', 'What'], ['file', 'Where', at]]);
   }
@@ -753,8 +872,50 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
 
   /* ── start ── */
-  $('chips').innerHTML = SAMPLES.map(function (s, i) { return '<button type="button" data-sample="' + i + '">' + esc(s.name) + '</button>'; }).join('');
-  $('chips').addEventListener('click', function (e) { var b = e.target.closest('button[data-sample]'); if (b) analyze(SAMPLES[Number(b.dataset.sample)].key); });
+  /* ── your projects: kept by the appliance, shown first; the samples step aside once you have one ── */
+  function shortName(key) { return String(key).replace(/^https?:\/\/(github|gitlab)\.com\//, '').replace(/^.*\/(?=[^/]+\/[^/]+$)/, ''); }
+  function ago(iso) {
+    var d = (Date.now() - new Date(iso).getTime()) / 60000;
+    if (!(d >= 0)) return '';
+    return d < 1 ? 'just now' : d < 60 ? Math.round(d) + ' min ago' : d < 1440 ? Math.round(d / 60) + ' h ago' : Math.round(d / 1440) + ' d ago';
+  }
+  function drawMine() {
+    var mine = state.mine || [];
+    $('mine').innerHTML = mine.length ? '<div class="minehead">Your projects (' + mine.length + ')</div><div class="mine">' + mine.map(function (p, i) {
+      return '<div class="proj' + (p.key === state.project ? ' cur' : '') + '" data-mine="' + i + '"><div><b>' + esc(p.name || shortName(p.key)) + '</b><div class="m">' +
+        (p.bootVersion ? 'Spring Boot ' + esc(p.bootVersion) + ' · ' : '') + (Number(p.failed) ? esc(p.failed) + ' check(s) failed · ' : '') + 'read ' + esc(ago(p.analysedAt)) +
+        '</div></div><button class="x" type="button" title="Remove from your projects" data-forget="' + i + '">×</button></div>';
+    }).join('') + '</div>' : '';
+    var chips = '<div class="chips">' + SAMPLES.map(function (s, i) { return '<button type="button" data-sample="' + i + '">' + esc(s.name) + '</button>'; }).join('') + '</div>';
+    $('samples').innerHTML = mine.length ? '<details class="samples"><summary>Sample projects</summary>' + chips + '</details>'
+      : '<div class="minehead">No project of yours yet. Enter one above, or try a sample:</div>' + chips;
+  }
+  function loadMine() {
+    return view('MyProjects').then(function (rows) { state.mine = rows; drawMine(); }).catch(function () { state.mine = []; drawMine(); });
+  }
+  /* Keep the project that was just read: replaced if it is already there, so it is listed once. */
+  function remember(failed) {
+    if (SAMPLES.some(function (s) { return s.key === state.project; })) return;
+    var o = state.overview || {}, s = state.stack || {};
+    var data = { key: state.project, name: shortName(state.project), bootVersion: s.bootVersion || '', support: s.support || '',
+                 read: o.project || '', modules: o.moduleCount || 0, analysedAt: new Date().toISOString(), failed: failed || 0 };
+    state.mine = [data].concat((state.mine || []).filter(function (p) { return p.key !== data.key; })); drawMine();
+    gateway.repository.deleteEntry({ type: 'SpringProject', id: data.key }).catch(function () {}).then(function () {
+      return gateway.repository.createEntry({ type: 'SpringProject', data: data });
+    }).catch(function (e) { console.warn('could not keep the project', e); });
+  }
+  $('mine').addEventListener('click', function (e) {
+    var x = e.target.closest('button[data-forget]'), p = e.target.closest('[data-mine]');
+    if (x) {
+      var gone = state.mine[Number(x.dataset.forget)];
+      state.mine = state.mine.filter(function (q) { return q !== gone; }); drawMine();
+      gateway.repository.deleteEntry({ type: 'SpringProject', id: gone.key }).catch(function () {});
+      return;
+    }
+    if (p) analyze(state.mine[Number(p.dataset.mine)].key);
+  });
+  drawMine(); loadMine();
+  $('samples').addEventListener('click', function (e) { var b = e.target.closest('button[data-sample]'); if (b) analyze(SAMPLES[Number(b.dataset.sample)].key); });
   $('form').addEventListener('submit', function (e) { e.preventDefault(); analyze($('project').value); });
   function fromHash() {
     var m = location.hash.match(/^#project=(.+)$/);

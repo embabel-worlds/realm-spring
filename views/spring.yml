@@ -241,3 +241,13 @@
     MATCH (t:SpringTriage {project: $project})
     RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
     LIMIT 2000
+
+- name: MyProjects
+  description: >-
+    The projects analyzed on the Spring Stack page, most recently read first, with the Spring Boot
+    version and outcome of the last read.
+  cypher: |
+    MATCH (p:SpringProject)
+    RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
+           p.modules AS modules, p.analysedAt AS analysedAt, p.failed AS failed
+    ORDER BY analysedAt DESC LIMIT 200
