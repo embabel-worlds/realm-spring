@@ -1601,7 +1601,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     ['code', 'Search code', null, '', '', []],
     ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type, and which bean of this project Spring would inject when the source settles it (the only one, the @Primary one, or the one a @Qualifier names). Beans from libraries are not seen.',
       [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
-       ['injected', 'Gets', function (r) { return (r.injected ? '<span class="mono">' + esc(r.injected) + '</span><br>' : '') + '<span class="muted">' + esc(r.resolution || '') + '</span>'; }], ['file', 'Where', at]]]
+       ['injected', 'Gets', function (r) { return (r.injected ? '<span class="mono">' + esc(r.injected) + '</span><br>' : '') + '<span class="sub">' + esc(r.resolution || '') + '</span>'; }], ['file', 'Where', at]]]
   ];
   /* ── ask: Spring's documentation, this project's documents and what the team added, with a written answer ── */
   function gatewayCall(ns, method) { try { var n = gateway[ns]; return n && method in n ? n[method] : null; } catch (e) { return null; } }
