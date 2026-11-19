@@ -303,3 +303,41 @@
     path: "File path, relative to the project."
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
+
+- name: SpringIssue
+  visibility: internal
+  userAnchor: false
+  description: "An issue or pull request on GitHub that matches a search, from GitHub's own search. Limited to issues in the spring-projects organisation. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
+  virtualJoins:
+    - { anchorLabel: Concept, relationship: RELEVANT_TO, keyField: value, recordKeyField: matchedFor, producer: springIssueSearch,
+        description: "Issues in the Spring projects' trackers matching free text, by GitHub's own search: (:Concept {value:'the error words'})-[:RELEVANT_TO]->(i:SpringIssue)" }
+  properties:
+    url: { identity: true, description: "The issue's page." }
+    number: { type: int, description: "Its number in its repository." }
+    title: "Its title."
+    state: "open or closed."
+    createdAt: "When it was opened."
+    closedAt: "When it was closed, if it was."
+    comments: { type: int, description: "How many comments it has." }
+    repositoryUrl: "The API address of its repository; the last two segments are owner and name."
+    milestone: "The milestone it is assigned to, usually the release that fixes it."
+    matchedFor: "The words it was found for."
+
+- name: SpringQuestion
+  visibility: internal
+  userAnchor: false
+  description: "A Stack Overflow question tagged spring-boot that matches a search, by relevance. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
+  virtualJoins:
+    - { anchorLabel: Concept, relationship: RELEVANT_TO, keyField: value, recordKeyField: matchedFor, producer: springQuestionSearch,
+        description: "Stack Overflow questions tagged spring-boot matching free text: (:Concept {value:'the error words'})-[:RELEVANT_TO]->(q:SpringQuestion)" }
+  properties:
+    url: { identity: true, description: "The question's page." }
+    questionId: { type: int, description: "Its id." }
+    title: "Its title."
+    score: { type: int, description: "Votes." }
+    answers: { type: int, description: "How many answers it has." }
+    answered: { type: boolean, description: "Whether an answer has a positive score or was accepted." }
+    views: { type: int, description: "How many times it was viewed." }
+    createdAt: { type: int, description: "When it was asked, seconds since 1970." }
+    lastActivityAt: { type: int, description: "When it last changed, seconds since 1970." }
+    matchedFor: "The words it was found for."

@@ -20,3 +20,44 @@
   maxKeysPerCall: 1
   project: { cycle: cycle, releaseDate: releaseDate, eol: eol, extendedSupport: extendedSupport, latest: latest, supportedJavaVersions: supportedJavaVersions }
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
+
+# SUPPORT. An error message or a question, looked up where Spring developers already asked it: the
+# Spring projects' issue trackers and Stack Overflow. Each is the source's own search, run live for
+# the words given; nothing is ingested.
+- name: springIssueSearch
+  kind: remote-search
+  operation: searchIssues
+  args: { q: "{query} org:spring-projects is:issue", per_page: 15 }
+  records: "$.items[*]"
+  idField: html_url
+  k: 15
+  minScore: 0.0
+  compute:
+    url: "r.html_url"
+    number: "r.number"
+    title: "r.title"
+    state: "r.state"
+    createdAt: "r.created_at"
+    closedAt: "r.closed_at"
+    comments: "r.comments"
+    repositoryUrl: "r.repository_url"
+    milestone: "r.milestone.title"
+
+- name: springQuestionSearch
+  kind: remote-search
+  operation: searchQuestions
+  args: { q: "{query}", site: stackoverflow, tagged: "spring-boot", sort: relevance, order: desc, pagesize: 10 }
+  records: "$.items[*]"
+  idField: link
+  k: 10
+  minScore: 0.0
+  compute:
+    url: "r.link"
+    questionId: "r.question_id"
+    title: "r.title"
+    score: "r.score"
+    answers: "r.answer_count"
+    answered: "r.is_answered"
+    views: "r.view_count"
+    createdAt: "r.creation_date"
+    lastActivityAt: "r.last_activity_date"

@@ -1,0 +1,58 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "GitHub issue search",
+  "version": "1",
+  "description": "GitHub's public issue and pull request search, keyless (10 searches a minute per address)."
+ },
+ "servers": [
+  {
+   "url": "https://api.github.com"
+  }
+ ],
+ "paths": {
+  "/search/issues": {
+   "get": {
+    "operationId": "searchIssues",
+    "summary": "Search issues and pull requests",
+    "description": "`items[]`: `{number, title, state, html_url, created_at, closed_at, comments, body, repository_url, labels[], milestone}`. `q` uses GitHub's search syntax: words plus qualifiers such as `org:spring-projects`, `repo:spring-projects/spring-boot`, `is:issue`, `is:open`, `in:title`.",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "per_page",
+      "in": "query",
+      "schema": {
+       "type": "integer"
+      }
+     },
+     {
+      "name": "sort",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "order",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok"
+     }
+    }
+   }
+  }
+ }
+}

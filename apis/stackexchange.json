@@ -1,0 +1,72 @@
+{
+ "openapi": "3.0.3",
+ "info": {
+  "title": "Stack Exchange search",
+  "version": "2.3",
+  "description": "Stack Overflow question search, keyless (300 requests a day per address)."
+ },
+ "servers": [
+  {
+   "url": "https://api.stackexchange.com"
+  }
+ ],
+ "paths": {
+  "/2.3/search/advanced": {
+   "get": {
+    "operationId": "searchQuestions",
+    "summary": "Search questions",
+    "description": "`items[]`: `{question_id, title, link, score, answer_count, is_answered, accepted_answer_id, view_count, creation_date, last_activity_date, tags[]}`.",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "site",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "tagged",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "sort",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "order",
+      "in": "query",
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "pagesize",
+      "in": "query",
+      "schema": {
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "ok"
+     }
+    }
+   }
+  }
+ }
+}

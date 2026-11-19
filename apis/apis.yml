@@ -32,3 +32,19 @@
   type: openapi
   auth: none
   operation-ids: [vulnerability]
+
+# Support: what the Spring projects' own trackers and Stack Overflow already say about an error or a
+# question. Keyless and rate-limited by address, so answers are cached for an hour.
+- url: github-search.json
+  name: github_search
+  type: openapi
+  auth: none
+  headers:
+    Accept: "application/vnd.github+json"
+  operation-ids: [searchIssues]
+
+- url: stackexchange.json
+  name: stackexchange
+  type: openapi
+  auth: none
+  operation-ids: [searchQuestions]

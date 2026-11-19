@@ -1,0 +1,32 @@
+# SUPPORT: an error or a question, answered from where Spring developers already raised it.
+
+- name: KnownIssues
+  description: >-
+    SELECT THIS for "is this a known bug", "has anyone reported this error", "is there an issue for
+    X in Spring Boot". Issues in the Spring projects' own GitHub trackers (the spring-projects
+    organisation) that match the words given: an exception message, a class or property name, a
+    symptom. Each with its repository, number, title, whether it is open, the milestone it is
+    assigned to (usually the release that fixes it), comment count and link, best match first. At
+    most 15. Pass the distinctive words of an error, not a whole stack trace. GitHub allows about
+    ten keyless searches a minute; answers are kept for an hour.
+  params:
+    words: { type: string, description: "The distinctive words of the error or question, e.g. 'JacksonAutoConfiguration ObjectMapper missing bean'." }
+  cypher: |
+    MATCH (s:Concept {value: $words})-[:RELEVANT_TO]->(i:SpringIssue)
+    RETURN split(i.repositoryUrl, '/repos/')[1] AS repository, i.number AS number, i.title AS title, i.state AS state,
+           i.milestone AS milestone, i.comments AS comments, left(i.createdAt, 10) AS opened, left(coalesce(i.closedAt, ''), 10) AS closed, i.url AS link
+    LIMIT 15
+
+- name: AskedBefore
+  description: >-
+    SELECT THIS for "how do others solve this", "is there an answer for this error". Stack Overflow
+    questions tagged spring-boot that match the words given, most relevant first: title, votes,
+    answer count, whether it has an accepted or upvoted answer, views, the year it was asked (old
+    answers often describe an earlier Spring Boot), and link. At most 10. Kept for an hour.
+  params:
+    words: { type: string, description: "Plain words: the error message's distinctive part, or the question." }
+  cypher: |
+    MATCH (s:Concept {value: $words})-[:RELEVANT_TO]->(q:SpringQuestion)
+    RETURN q.title AS title, q.score AS votes, q.answers AS answers, q.answered AS answered, q.views AS views,
+           1970 + q.createdAt / 31557600 AS askedIn, q.url AS link
+    LIMIT 10
