@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","ProjectLanguages","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -68,6 +68,9 @@
   .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
   details summary{cursor:pointer;color:var(--dim);margin:12px 0 8px}
   #how-it-works{display:none;margin-top:26px} #how-it-works:target{display:block} #how-it-works pre{white-space:pre-wrap;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;color:var(--dim)} #how-it-works p{color:var(--dim)} #how-it-works summary{color:var(--text);margin:6px 0}
+  .langbar{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:10px 0 8px;background:var(--surface2)} .langbar i{display:block;height:100%}
+  .langs{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px} .langs .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
+  .langs b{font-weight:600} .langs .m{color:var(--dim)}
   .minehead{font-size:12px;color:var(--dim);margin:2px 0 6px} .mine{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .mine .proj{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 10px;cursor:pointer}
   .mine .proj:hover{border-color:var(--green)} .mine .proj b{font-size:13px} .mine .proj .m{font-size:11.5px;color:var(--dim)}
@@ -100,6 +103,7 @@
   <div id="report" hidden>
     <div class="progress" id="progress"></div>
     <div class="card"><div class="stack" id="stack"></div><div id="recommend" class="sub"></div></div>
+    <div class="card" id="madeof" hidden></div>
     <div class="tabs" id="tabs"></div>
     <section id="panel"></section>
   </div>
@@ -434,7 +438,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   var CATEGORY = { 'upgrade-blocker': 'Upgrade blockers', 'vulnerability': 'Vulnerabilities', 'configuration': 'Configuration',
                    'dependencies': 'Dependencies', 'design': 'Design', 'testing': 'Testing', 'modernize': 'Modernize', 'support': 'Support' };
   var state = { project: null, stack: null, lines: [], findings: [], triage: {}, beans: null, profiles: null, target: null,
-                upgrade: null, tab: 'inbox', filter: null, showDecided: false, mine: null, modules: null, nav: { level: 'modules' }, loading: {} };
+                upgrade: null, tab: 'inbox', filter: null, showDecided: false, mine: null, modules: null, languages: null, nav: { level: 'modules' }, loading: {} };
 
   function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function rowsOf(r) {
@@ -535,10 +539,10 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (!key) return;
     $('project').value = key;
     if (location.hash !== '#project=' + encodeURIComponent(key)) history.replaceState(null, '', '#project=' + encodeURIComponent(key));
-    state = Object.assign(state, { saved: false, modules: null, nav: { level: 'modules' }, loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+    state = Object.assign(state, { saved: false, modules: null, languages: null, nav: { level: 'modules' }, loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
     drawMine();
-    $('report').hidden = false; steps(); renderStack(); render();
+    $('report').hidden = false; steps(); renderStack(); renderMadeOf(); render();
     mark('code', 'run');
     var first = function () { return view('StackCard', { project: key }); };
     first().catch(function () {
@@ -551,7 +555,8 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
         state.overview = rows[0] || null;
         if (state.overview) mark('code', 'done', state.overview.moduleCount + ' module(s), ' + state.overview.types + ' types, ' + state.overview.settings + ' settings, ' + state.overview.dependencies + ' dependencies');
       }).catch(function () {});
-      view('ModuleSources', { project: key }).then(function (rows) { if (key === state.project) { state.modules = rows; drawProgress(); if (state.tab === 'structure') render(); } }).catch(function () {});
+      view('ProjectLanguages', { project: key }).then(function (rows) { if (key === state.project) { state.languages = rows; renderMadeOf(); } }).catch(function () {});
+      view('ModuleSources', { project: key }).then(function (rows) { if (key === state.project) { state.modules = rows; renderMadeOf(); drawProgress(); if (state.tab === 'structure') render(); } }).catch(function () {});
       renderStack();
       supportFinding();
       return Promise.all([loadLines(), loadTriage()]);
@@ -652,6 +657,44 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     $('recommend').innerHTML = state.target ? 'Upgrade target: <b>Spring Boot ' + esc(state.target) + '</b>' +
       (java && java.javaVersions ? ' — needs Java ' + esc(java.javaVersions) : '') + '. Change it on the Upgrade tab.'
       : state.upToDate ? 'On the newest supported release. There is nothing to upgrade to.' : '';
+  }
+  /* ── what the project is made of: modules, files, and every language in it ── */
+  var LANG = { kt: 'Kotlin', kts: 'Kotlin script', java: 'Java', groovy: 'Groovy', scala: 'Scala', ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', mjs: 'JavaScript',
+    jsx: 'JavaScript', py: 'Python', go: 'Go', rs: 'Rust', rb: 'Ruby', php: 'PHP', cs: 'C#', c: 'C', h: 'C', cpp: 'C++', swift: 'Swift', sh: 'Shell', sql: 'SQL',
+    html: 'HTML', css: 'CSS', scss: 'CSS', xml: 'XML', yml: 'YAML', yaml: 'YAML', json: 'JSON', md: 'Markdown', properties: 'Properties', jinja: 'Jinja templates',
+    cypher: 'Cypher', wat: 'WebAssembly text', proto: 'Protocol Buffers', gradle: 'Gradle', toml: 'TOML' };
+  var CODE = { Kotlin: 1, 'Kotlin script': 1, Java: 1, Groovy: 1, Scala: 1, TypeScript: 1, JavaScript: 1, Python: 1, Go: 1, Rust: 1, Ruby: 1, PHP: 1, 'C#': 1, C: 1, 'C++': 1,
+    Swift: 1, Shell: 1, SQL: 1, HTML: 1, CSS: 1, Cypher: 1, 'WebAssembly text': 1, 'Jinja templates': 1 };
+  var SWATCH = ['#a78bfa', '#f0883e', '#58a6ff', '#8fd15a', '#e3b341', '#ef5b5b', '#56d4dd', '#d2a8ff', '#8b95a3'];
+  function num(n) { return Number(n || 0).toLocaleString('en-US'); }
+  function renderMadeOf() {
+    var el = $('madeof'), rows = state.languages, ms = state.modules;
+    if (!rows && !ms) { el.hidden = true; return; }
+    var by = {}, order = [];
+    (rows || []).forEach(function (r) {
+      var name = LANG[r.extension]; if (!name) return;
+      if (!by[name]) { by[name] = { name: name, files: 0, main: 0, test: 0 }; order.push(by[name]); }
+      by[name].files += Number(r.files) || 0; by[name].main += Number(r.mainFiles) || 0; by[name].test += Number(r.testFiles) || 0;
+    });
+    var code = order.filter(function (l) { return CODE[l.name]; }).sort(function (a, b) { return b.files - a.files; });
+    var other = order.filter(function (l) { return !CODE[l.name]; }).sort(function (a, b) { return b.files - a.files; });
+    var total = code.reduce(function (n, l) { return n + l.files; }, 0);
+    var shown = code.slice(0, 8), rest = code.slice(8);
+    if (rest.length) shown.push({ name: rest.length + ' more', files: rest.reduce(function (n, l) { return n + l.files; }, 0), main: 0, test: 0, more: true });
+    var withSource = (ms || []).filter(function (m) { return (m.mainFiles || 0) + (m.testFiles || 0) > 0; }).length;
+    el.hidden = false;
+    el.innerHTML = '<div class="stack">' +
+      stat('Modules', ms ? num(ms.length) : '…', ms ? withSource + ' with source · Maven' : 'reading the build') +
+      stat('Code files', rows ? num(total) : '…', rows ? 'in ' + code.length + ' language(s), main and test' : 'counting files') +
+      stat('Main language', code[0] ? esc(code[0].name) : '—', code[0] && total ? Math.round(100 * code[0].files / total) + '% of code files' : '') +
+      '</div>' +
+      (rows ? '<div class="langbar">' + shown.map(function (l, i) { return '<i title="' + esc(l.name) + '" style="width:' + (total ? 100 * l.files / total : 0) + '%;background:' + SWATCH[i % SWATCH.length] + '"></i>'; }).join('') + '</div>' +
+        '<div class="langs">' + shown.map(function (l, i) {
+          return '<span><span class="sw" style="background:' + SWATCH[i % SWATCH.length] + '"></span><b>' + esc(l.name) + '</b> ' + num(l.files) + ' files' +
+            (l.more ? '' : ' <span class="m">(' + num(l.main) + ' main, ' + num(l.test) + ' test)</span>') + '</span>';
+        }).join('') + '</div>' +
+        (other.length ? '<div class="sub" style="margin-top:8px">Also: ' + other.slice(0, 8).map(function (l) { return esc(l.name) + ' ' + num(l.files); }).join(' · ') +
+          '. Files are counted by extension across the whole repository; “main” and “test” are those under src/main and src/test.</div>' : '') : '');
   }
   function stat(k, v, n) { return '<div class="stat"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div><div class="n">' + esc(n) + '</div></div>'; }
 
