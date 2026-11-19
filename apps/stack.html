@@ -347,19 +347,20 @@ RETURN &#x27;vulnerable:&#x27; + coordinates AS id,
             ELSE &#x27;No fix on your &#x27; + line + &#x27; line: move to a newer line (see the Upgrade tab).&#x27; END AS fix,
        coordinates AS file, 0 AS line, null AS link, worst AS cvss, advisories, upgradeTo
 ORDER BY cvss DESC LIMIT 500</pre></details>
-  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration or a controller advice, and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration, @SpringBootApplication or a controller advice, Spring Data repository interfaces, and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
-  AND ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;]
+  AND (ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;]
                                     OR ANY(g IN [&#x27;Profile&#x27;, &#x27;Conditional&#x27;] WHERE a STARTS WITH g))
+       OR (d.kind = &#x27;interface&#x27; AND d.signature CONTAINS &#x27;Repository&lt;&#x27;))
 // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
 WITH [x IN collect(d) WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND ANY(a IN x.annotations WHERE a = &#x27;Profile&#x27; OR a STARTS WITH &#x27;Conditional&#x27;)
       | {path: x.path, name: x.name, text: x.annotationText}] AS gates,
-     [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])] AS beans
+     [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;]) OR (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;)] AS beans
 UNWIND beans AS d
-WITH d, [a IN d.annotations WHERE a IN [&#x27;Bean&#x27;, &#x27;Configuration&#x27;, &#x27;RestController&#x27;, &#x27;Controller&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Component&#x27;]][0] AS stereotype,
+WITH d, coalesce([a IN d.annotations WHERE a IN [&#x27;Bean&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;Configuration&#x27;, &#x27;RestController&#x27;, &#x27;Controller&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Component&#x27;]][0], &#x27;Spring Data repository&#x27;) AS stereotype,
      d.annotationText + reduce(acc = [], g IN [x IN gates WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;))] | acc + g.text) AS written
 RETURN CASE WHEN stereotype = &#x27;Bean&#x27; THEN coalesce(d.owner, &#x27;&#x27;) + &#x27;#&#x27; + d.name ELSE CASE WHEN coalesce(d.owner, &#x27;&#x27;) = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END END AS bean,
-       CASE WHEN stereotype = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; ELSE &#x27;@&#x27; + stereotype END AS declaredBy,
+       CASE WHEN stereotype = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; WHEN stereotype = &#x27;Spring Data repository&#x27; THEN stereotype ELSE &#x27;@&#x27; + stereotype END AS declaredBy,
        [t IN written WHERE t STARTS WITH &#x27;@Profile&#x27; AND t CONTAINS &#x27;&quot;&#x27; | split(t, &#x27;&quot;&#x27;)[1]] AS profiles,
        [t IN written WHERE t STARTS WITH &#x27;@Conditional&#x27;] AS conditions,
        d.language AS language,
