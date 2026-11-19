@@ -63,39 +63,55 @@
   params:
     project: { type: string, description: "Project key." }
   cypher: |
-    /* Short lists first, the long list of documented properties after them, and the settings gone through last, one row each, never gathered. */
-    // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
-    MATCH (p:JavaProject {key: $project})
-    OPTIONAL MATCH (p)-[:HAS_SETTING]->(r:ProjectSetting)
-    WHERE r.path CONTAINS 'src/main/resources' AND coalesce(r.value, '') CONTAINS '${'
-    WITH p, collect(r.value) AS reading
+    /*
+     * The settings are read first and the jars' documented properties last. Read the other way round the statement
+     * stops on the engine's work budget on a large project (18,000 settings across a repository, 390 jars), though
+     * nothing here builds a string for each of them: an engine defect, found on embabel/me, that this order avoids.
+     */
+    MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
+    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
+      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages' AND NOT s.fileName STARTS WITH '.'
+      AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
+    WITH p, collect(s) AS settings
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
     WHERE cp.name = 'ConfigurationProperties' OR coalesce(cp.value, '') CONTAINS '${' OR ANY(x IN coalesce(cp.attributes, []) WHERE x CONTAINS '${')
-    WITH p, reading,
+    WITH p, settings,
          collect(DISTINCT CASE WHEN cp.name = 'ConfigurationProperties'
                    THEN coalesce([x IN cp.attributes WHERE x STARTS WITH 'prefix=' | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
          /* Every ${key} any annotation reads: @Value, and @Scheduled(cron = "${jobs.cron}"), @FeignClient(url = "${rates.url}") and the rest. */
          collect(CASE WHEN cp.name <> 'ConfigurationProperties' THEN coalesce(cp.value, '') + reduce(t = '', x IN coalesce(cp.attributes, []) | t + ' ' + x) END) AS annotated
-    /* The project's own prefixes and keys in their relaxed form, made once. */
-    WITH p, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
-         [x IN reduce(acc = [], text IN annotated + reading | acc + [k IN split(text, '${')[1..] | split(split(k, '}')[0], ':')[0]]) | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
+    /* The same from Kotlin and Scala, whose annotations are read as written: @ConfigurationProperties("shop") or (prefix = "shop"), and any ${key}. */
+    OPTIONAL MATCH (p)-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE d.language <> 'java' AND NOT d.path CONTAINS 'src/test/' AND ANY(t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties' OR t CONTAINS '${')
+    WITH p, settings, ownPrefixes, annotated,
+         collect([t IN d.annotationText WHERE t CONTAINS 'ConfigurationProperties(' AND t CONTAINS '"' | split(t, '"')[1]][0]) AS writtenPrefixes,
+         collect(reduce(all = '', t IN [t IN d.annotationText WHERE t CONTAINS '${'] | all + ' ' + t)) AS writtenKeys
+    /* The project's own prefixes and keys in their relaxed form, made once. A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use too. */
+    WITH p, settings, [x IN ownPrefixes + writtenPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
+         [x IN reduce(acc = [], text IN annotated + writtenKeys + [y IN settings WHERE coalesce(y.value, '') CONTAINS '${' | y.value] | acc + [k IN split(text, '${')[1..] | split(split(k, '}')[0], ':')[0]])
+            | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
     MATCH (p)-[:HAS_JAR]->(j:ProjectJar)
     WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
        OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
     MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
     /* A multi-module project meets the same jar, and so the same property, once per module: one of each is enough. */
-    WITH p, ownPrefixes, valueKeys, bp.name AS documented, collect(bp)[0] AS bp
-    WITH p, ownPrefixes, valueKeys, collect(bp) AS props
+    WITH settings, ownPrefixes, valueKeys, bp.name AS documented, collect(bp)[0] AS bp
+    WITH settings, ownPrefixes, valueKeys, collect(bp) AS props
     /* Each documented name in its relaxed form, made once: made inside the comparison below it would be made again for every setting. */
-    WITH p, ownPrefixes, valueKeys, [x IN props | [toLower(replace(replace(x.name, '-', ''), '_', '')), x]] AS props
-    WITH p, ownPrefixes, valueKeys, props,
+    WITH settings, ownPrefixes, valueKeys, [x IN props | [toLower(replace(replace(x.name, '-', ''), '_', '')), x]] AS props
+    WITH settings, ownPrefixes, valueKeys, props,
          [x IN props WHERE x[1].type STARTS WITH 'java.util.Map' OR x[1].type STARTS WITH 'java.util.List' | x[0] + '.'] AS open
-    MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
-    WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
-      AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
-      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages' AND NOT s.fileName STARTS WITH '.'
-      AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
-    WITH s, props, open, ownPrefixes, valueKeys, toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
+    /*
+     * Which files are Spring configuration: application* and bootstrap* by name, and any other that sets at least one
+     * property Spring Boot documents (a config server's shared files). A YAML file of the project's own data is neither.
+     */
+    WITH ownPrefixes, valueKeys, props, open, [x IN props | x[0]] AS names,
+         [x IN settings | [x, toLower(replace(replace(split(x.name, '[')[0], '-', ''), '_', ''))]] AS settings
+    WITH ownPrefixes, valueKeys, props, open, settings, [x IN settings WHERE x[1] IN names | x[0].path] AS springFiles
+    UNWIND settings AS pair
+    WITH pair[0] AS s, pair[1] AS base, props, open, ownPrefixes, valueKeys, springFiles
+    WHERE s.fileName STARTS WITH 'application' OR s.fileName STARTS WITH 'bootstrap' OR s.path IN springFiles
     WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE x[0] = base | x[1]][0] AS match
     WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
       AND NOT ANY(x IN valueKeys WHERE base = x)
