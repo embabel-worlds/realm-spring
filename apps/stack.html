@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","GradleStackCard","CodeChecks","TransactionalWork","ControllersUsingRepositories","EmbabelModel","EmbabelChecks","SpringDocs","KnownIssues","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ModernizationFindingsInCode","DocumentedSettings","SettingsWritten","SettingsReadByCode","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","GradleStackCard","CodeChecks","TransactionalWork","ControllersUsingRepositories","EmbabelModel","EmbabelChecks","Docs","DocsAnswer","KnownIssues","SearchCode","IndexedProjects","IndexState","Beans","BeanWiring","Endpoints","BackgroundWork","TransactionalMethods","OutboundHttp","DataModel","AccessRules","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -885,7 +885,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     state = Object.assign(state, { saved: false, modules: again ? state.modules : null, languages: again ? state.languages : null,
                                    nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     state.pendingNav = null;
-    if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; state.wire = ''; Object.keys(state).forEach(function (k) { if (k.indexOf('app_') === 0) delete state[k]; }); }
+    if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; state.wire = ''; state.askWords = ''; state.askAnswer = null; state.asking = null; state.addOpen = false; state.addNote = ''; state.codeWords = ''; state.codeHits = null; state.codeSearching = null; Object.keys(state).forEach(function (k) { if (k.indexOf('app_') === 0) delete state[k]; }); }
     if (!again) Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
     state.project = key; writeHash();
     drawMine();
@@ -1146,6 +1146,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       : '<button data-decide="done" data-id="' + esc(f.id) + '">Done</button><button data-decide="snoozed" data-id="' + esc(f.id) + '">Snooze</button><button data-decide="wontfix" data-id="' + esc(f.id) + '">Won\'t fix</button>';
     return '<div class="item ' + esc(f.severity) + '"><div class="t">' + esc(f.title) + '</div>' +
       (f.detail ? '<div class="d">' + esc(f.detail) + '</div>' : '') + (f.fix ? '<div class="fix">' + esc(f.fix) + '</div>' : '') +
+      '<div class="sub" style="margin-top:6px"><a data-docs="' + esc(f.title) + '" style="cursor:pointer">What the docs say</a></div>' +
       '<div class="meta"><span class="dot s-' + esc(f.severity) + '"></span>' + esc(f.severity) + '<span class="tag">' + esc(CATEGORY[f.category] || f.category) + '</span>' + where +
       '<span class="actions">' + acts + '</span></div></div>';
   }
@@ -1504,33 +1505,108 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       [['kind', 'Kind'], ['rule', 'Rule'], ['expression', 'Expression or roles', mono('expression')], ['class', 'On', member], ['path', 'Where', where]]],
     ['checks', 'Code checks', 'CodeChecks', 'Checking Spring usage in the project’s Java, Kotlin and Scala source', 'Spring idioms that are wrong, removed or needlessly old, each with the change to make.',
       [['severity', 'Severity', function (r) { return '<span class="kind">' + esc(r.severity) + '</span>'; }], ['found', 'Found', function (r) { return esc(r.found) + '<div class="sub" style="margin-top:3px">' + esc(r.fix) + '</div>'; }], ['class', 'In', member], ['path', 'Where', where]]],
-    ['ask', 'Ask the docs', null, '', '', []],
+    ['ask', 'Ask', null, '', '', []],
+    ['code', 'Search code', null, '', '', []],
     ['wiring', 'Wiring', 'BeanWiring', 'Reading every constructor, injected field and @Bean method parameter', 'Every injection point: which bean asks for which type. Matched by type name; which implementation is injected is not resolved.',
       [['bean', 'Bean', mono('bean')], ['type', 'Asks for', function (r) { return '<a class="mono" data-wire="' + esc(r.type) + '" style="cursor:pointer">' + esc(r.type) + '</a>'; }], ['injectedBy', 'Injected by'],
        ['declaredHere', 'Declared in this project', function (r) { return String(r.declaredHere) === 'true' ? 'yes' : 'no'; }], ['file', 'Where', at]]]
   ];
-  /* ── ask: Spring's own documentation and its issue trackers, for whatever you type ── */
+  /* ── ask: Spring's documentation, this project's documents and what the team added, with a written answer ── */
+  function gatewayCall(ns, method) { try { var n = gateway[ns]; return n && method in n ? n[method] : null; } catch (e) { return null; } }
+  function projectSlug() { return String(state.project || '').replace(/^https:\/\//, ''); }
+  function runAsk(words) {
+    if (!words || state.asking) return;
+    state.appSection = 'ask'; state.tab = 'app';
+    state.askWords = words; state.asking = Date.now(); state.askAnswer = null; render();
+    var part = function (name, params) { return view(name, params).then(function (rows) { return { rows: rows }; }).catch(function (e) { return { rows: [], error: reason(e) }; }); };
+    var both = { words: words, project: state.project };
+    /* Passages and issues first, since they are quick; the written answer arrives when the model has read them. */
+    Promise.all([part('Docs', both), part('KnownIssues', { words: words })]).then(function (r) {
+      state.askAnswer = { docs: r[0], issues: r[1], answer: null, answering: Date.now() }; state.asking = null; render();
+      if (!r[0].rows.length) { state.askAnswer.answering = null; render(); return; }
+      part('DocsAnswer', both).then(function (a) { if (state.askAnswer && state.askWords === words) { state.askAnswer.answer = a; state.askAnswer.answering = null; render(); } });
+    });
+  }
+  function addDocument() {
+    var title = $('doctitle').value.trim(), text = $('doctext').value.trim(), ingest = gatewayCall('ingest', 'document');
+    if (!title || !text) { state.addNote = 'Give it a title and some text.'; render(); return; }
+    if (!ingest) { state.addNote = 'This appliance offers apps no way to add a document (gateway.ingest.document).'; render(); return; }
+    state.adding = true; state.addNote = ''; render();
+    var slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'note';
+    ingest({ content: '# ' + title + '\n\n' + text, uri: 'spring-notes://' + projectSlug() + '/' + slug, title: title, sourceKind: 'spring-notes' })
+      .then(function () { state.adding = false; state.addOpen = false; state.addNote = '“' + title + '” was added for this project. It is searchable once the appliance has indexed it, usually within a minute. Adding another with the same title replaces it.'; render(); })
+      .catch(function (e) { state.adding = false; state.addNote = 'It could not be added: ' + reason(e); render(); });
+  }
+  function indexProjectDocs() {
+    var sync = gatewayCall('realms', 'realmSyncDocuments');
+    if (!sync) { state.addNote = 'This appliance cannot be asked to index a project’s documents from a page.'; render(); return; }
+    state.addNote = 'Reading this project’s Markdown and AsciiDoc files…'; render();
+    sync({ realm: 'spring', source: 'project-docs' }).then(function () { state.addNote = 'The appliance is indexing the documents of every project kept on this page. They become searchable as it goes; a large repository takes a few minutes.'; render(); })
+      .catch(function (e) { state.addNote = 'It could not be started: ' + reason(e); render(); });
+  }
   function renderAsk(picker) {
     var q = state.askWords || '', a = state.askAnswer;
-    var box = '<div class="sub" style="margin-bottom:10px">Ask Spring’s documentation and its issue trackers. Type an error’s distinctive words, a property or a class name.</div>' +
-      '<div style="margin-bottom:12px"><input id="ask" placeholder="e.g. Jackson 3 ObjectMapper missing bean" value="' + esc(q) + '" style="width:420px"> <button type="button" id="askgo">Search</button></div>';
+    var box = '<div class="sub" style="margin-bottom:10px">Ask Spring’s documentation (the reference manuals for Spring Boot, Framework and Security, the migration guides and release notes), this project’s own documents, what your team has added, and the Spring projects’ issue trackers. Type a question, an error’s distinctive words, a property or a class name.</div>' +
+      '<div style="margin-bottom:8px"><input id="ask" placeholder="e.g. how do I move from Jackson 2 to Jackson 3" value="' + esc(q) + '" style="width:460px"> <button type="button" id="askgo">Ask</button></div>' +
+      '<div class="sub" style="margin-bottom:12px"><a id="addopen" style="cursor:pointer">Add a document of your own</a> · <a id="indexdocs" style="cursor:pointer">Index this project’s documents</a>' + (state.addNote ? '<div class="note" style="margin-top:8px">' + esc(state.addNote) + '</div>' : '') + '</div>' +
+      (state.addOpen ? '<div class="sumbox" style="margin-bottom:14px"><div class="k">Add a document for this project</div><div class="t">A runbook, a decision, a convention: anything your team wants found when someone asks. It is kept on this appliance and searched with everything else.<br>' +
+        '<input id="doctitle" placeholder="Title" style="width:460px;margin:8px 0"><br><textarea id="doctext" placeholder="Paste the text (Markdown is fine)" style="width:100%;height:140px"></textarea><br>' +
+        '<button type="button" id="docadd"' + (state.adding ? ' disabled' : '') + '>' + (state.adding ? 'Adding…' : 'Add') + '</button></div></div>' : '');
     var body = '';
-    if (state.asking) body = '<div class="empty"><span class="spin">●</span>Searching the documentation and the issue trackers — ' + Math.round((Date.now() - state.asking) / 1000) + ' s</div>';
+    if (state.asking) body = '<div class="empty"><span class="spin">●</span>Searching the documents and the issue trackers — ' + Math.round((Date.now() - state.asking) / 1000) + ' s</div>';
     else if (a) {
-      body = '<h3 style="margin:8px 0">From Spring’s documentation</h3>' + (a.docs.error ? '<div class="note warn">' + esc(a.docs.error) + '</div>' : !a.docs.rows.length ? '<div class="empty">Nothing close in the sixteen pages indexed (migration guides, release notes, key reference pages).</div>' :
-        a.docs.rows.map(function (r) { return '<div class="sumbox"><div class="k"><a target="_blank" rel="noopener" href="' + esc(r.page) + '">' + esc(r.title) + '</a></div><div class="t">' + esc(r.passage) + '</div></div>'; }).join('')) +
+      var ans = a.answer && a.answer.rows[0];
+      body = (a.answering ? '<div class="empty"><span class="spin">●</span>Writing an answer from the passages found — ' + Math.round((Date.now() - a.answering) / 1000) + ' s</div>' :
+        a.answer && a.answer.error ? '<div class="note warn">An answer could not be written: ' + esc(a.answer.error) + '. The passages are below.</div>' :
+        ans ? '<div class="sumbox"><div class="k">Answer, written by the appliance’s model from the ' + (ans.titles || []).length + ' passages numbered below. Check it against them.</div><div class="t">' + esc(ans.answer) + '</div></div>' : '') +
+        '<h3 style="margin:12px 0 8px">Passages</h3>' + (a.docs.error ? '<div class="note warn">' + esc(a.docs.error) + '</div>' : !a.docs.rows.length ? '<div class="empty">Nothing close was found in the documents indexed.</div>' :
+        a.docs.rows.map(function (r, i) {
+          var link = /^https?:/.test(r.page) ? '<a target="_blank" rel="noopener" href="' + esc(r.page) + '">' + esc(r.title) + '</a>' : esc(r.title);
+          return '<div class="sumbox"><div class="k">[' + (i + 1) + '] ' + link + ' <span class="kind">' + esc(r.source) + '</span></div><div class="t">' + esc(r.passage) + '</div></div>';
+        }).join('')) +
         '<h3 style="margin:14px 0 8px">Issues in the Spring projects</h3>' + (a.issues.error ? '<div class="note warn">' + esc(a.issues.error) + '</div>' : !a.issues.rows.length ? '<div class="empty">None matched. Try fewer, more distinctive words.</div>' :
         table(a.issues.rows, [['repository', 'Project'], ['title', 'Issue', function (r) { return '<a target="_blank" rel="noopener" href="' + esc(r.link) + '">#' + esc(r.number) + ' ' + esc(r.title) + '</a>'; }], ['state', 'State'], ['milestone', 'Fixed in'], ['opened', 'Opened']]));
     }
     $('panel').innerHTML = picker + box + body;
-    var go = function () {
-      var words = $('ask').value.trim(); if (!words || state.asking) return;
-      state.askWords = words; state.asking = Date.now(); state.askAnswer = null; render();
-      var part = function (name) { return view(name, { words: words }).then(function (rows) { return { rows: rows }; }).catch(function (e) { return { rows: [], error: reason(e) }; }); };
-      Promise.all([part('SpringDocs'), part('KnownIssues')]).then(function (r) { state.askAnswer = { docs: r[0], issues: r[1] }; state.asking = null; render(); });
-    };
-    $('askgo').addEventListener('click', go);
-    $('ask').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+    $('askgo').addEventListener('click', function () { runAsk($('ask').value.trim()); });
+    $('ask').addEventListener('keydown', function (e) { if (e.key === 'Enter') runAsk($('ask').value.trim()); });
+    $('addopen').addEventListener('click', function () { state.addOpen = !state.addOpen; render(); });
+    $('indexdocs').addEventListener('click', indexProjectDocs);
+    if ($('docadd')) $('docadd').addEventListener('click', addDocument);
+  }
+
+  /* ── code search: by what the code does, through the code index the appliance keeps ── */
+  function searchCode(words) {
+    if (!words || state.codeSearching) return;
+    state.codeWords = words; state.codeSearching = Date.now(); state.codeHits = null; state.codeNote = ''; render();
+    var done = function (rows, note) { state.codeHits = rows; state.codeNote = note || ''; state.codeSearching = null; render(); };
+    view('IndexedProjects', {}).then(function (rows) {
+      if (rows.some(function (r) { return r.project === state.project; })) return false;
+      var create = gatewayCall('repository', 'createEntry');
+      if (!create) throw new Error('this appliance offers apps no way to record a project for indexing');
+      return create({ type: 'IndexedProject', data: { key: state.project, label: projectSlug().replace(/^github\.com\//, '') } }).then(function () {
+        var sync = gatewayCall('realms', 'realmSyncDocuments');
+        return sync ? sync({ realm: 'polyglot-code', source: 'code-declarations' }).then(function () { return true; }, function () { return true; }) : true;
+      });
+    }).then(function (fresh) {
+      if (fresh) return done([], 'This project was not in the code index, so it has been added and the appliance is reading it now. Search again in a minute or two; a large repository takes longer.');
+      return Promise.all([view('SearchCode', { project: state.project, query: words }), view('IndexState', { project: state.project }).catch(function () { return []; })]).then(function (r) {
+        var held = r[1][0] && r[1][0].indexed || 0;
+        done(r[0], held ? num(held) + ' declarations of this project are searchable by meaning.' : 'None of this project is searchable by meaning yet: the appliance is still reading it.');
+      });
+    }).catch(function (e) { done([], 'Code search could not run: ' + reason(e)); });
+  }
+  function renderCodeSearch(picker) {
+    var box = '<div class="sub" style="margin-bottom:10px">Find code by what it does, in any language the appliance reads. “Where are prices rounded”, “what validates a login”.</div>' +
+      '<div style="margin-bottom:12px"><input id="codeq" placeholder="What the code does, in words" value="' + esc(state.codeWords || '') + '" style="width:460px"> <button type="button" id="codego">Search</button></div>';
+    var body = state.codeSearching ? '<div class="empty"><span class="spin">●</span>Searching the code index — ' + Math.round((Date.now() - state.codeSearching) / 1000) + ' s</div>' :
+      !state.codeHits ? '' : (state.codeNote ? '<div class="sub" style="margin-bottom:10px">' + esc(state.codeNote) + '</div>' : '') +
+        (state.codeHits.length ? table(state.codeHits, [['kind', 'Kind', function (r) { return '<span class="kind">' + esc(r.kind) + '</span>'; }], ['name', 'Declaration', mono('name')], ['language', 'Language'], ['file', 'File', mono('file')],
+          ['score', 'Closeness', function (r) { return Number(r.score || 0).toFixed(2); }]]) +
+          '<div class="sub" style="margin-top:10px">For answers written from the code, with callers and callees, open the <a target="_blank" rel="noopener" href="/apps/polyglot-code/explorer.html">code explorer</a>.</div>' : '');
+    $('panel').innerHTML = picker + box + body;
+    $('codego').addEventListener('click', function () { searchCode($('codeq').value.trim()); });
+    $('codeq').addEventListener('keydown', function (e) { if (e.key === 'Enter') searchCode($('codeq').value.trim()); });
   }
 
   function renderApp() {
@@ -1539,7 +1615,10 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
       var rows = state['app_' + a[0]];
       return '<button data-app="' + a[0] + '" class="' + (a === cur ? 'on' : '') + '">' + esc(a[1]) + (rows ? ' <span class="count">' + num(rows.length) + '</span>' : '') + '</button>';
     }).join('') + '</div>';
-    if (cur[0] === 'ask') { if (state.asking) state.loading.ask = state.loading.ask || { start: state.asking, error: null, project: state.project }; else delete state.loading.ask; return renderAsk(picker); }
+    var busy = state.asking || (state.askAnswer && state.askAnswer.answering) || state.codeSearching;
+    if (busy) state.loading.ask = state.loading.ask || { start: busy, error: null, project: state.project }; else delete state.loading.ask;
+    if (cur[0] === 'ask') return renderAsk(picker);
+    if (cur[0] === 'code') return renderCodeSearch(picker);
     if (!state[key]) { waiting(key, cur[1], cur[3], function () { return view(cur[2], { project: state.project }); }); $('panel').innerHTML = picker + $('panel').innerHTML; return; }
     var rows = state[key], shown = rows, filter = '';
     if (cur[0] === 'wiring') {
@@ -1559,7 +1638,8 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   }
   $('panel').addEventListener('click', function (e) {
     var a = e.target.closest('[data-app]'); if (a) { state.appSection = a.dataset.app; render(); return; }
-    var t = e.target.closest('[data-wire]'); if (t) { state.wire = t.dataset.wire; state.wireExact = !!t.dataset.wire; render(); }
+    var t = e.target.closest('[data-wire]'); if (t) { state.wire = t.dataset.wire; state.wireExact = !!t.dataset.wire; render(); return; }
+    var dq = e.target.closest('[data-docs]'); if (dq) { e.stopPropagation(); runAsk(dq.dataset.docs); }
   });
 
   function renderBeans() {

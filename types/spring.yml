@@ -369,3 +369,16 @@
     path: "File path, relative to the project."
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
+
+- name: SpringProjectFile
+  visibility: internal
+  userAnchor: false
+  description: "A file of a project kept on the Spring page, read to find its documents (README, docs, decision records). Reach it from (:SpringProject {key})-[:HAS_DOC_FILE]->."
+  virtualJoins:
+    - { anchorLabel: SpringProject, relationship: HAS_DOC_FILE, keyField: key, recordKeyField: anchorKey, producer: springProjectFiles, maxFanoutTotal: 200000,
+        description: "(:SpringProject {key:$project})-[:HAS_DOC_FILE]->(f:SpringProjectFile)" }
+  properties:
+    id: { identity: true, description: "`<project>!<path>`." }
+    path: "Path within the project."
+    extension: "Its extension, lower case."
+    link: "Its page on the repository's host."

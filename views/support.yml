@@ -45,5 +45,47 @@
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
     WHERE 'spring-docs' IN h.tags
-    RETURN h.title AS title, h.uri AS page, r.snippet AS passage, r.score AS score, r.mode AS foundBy
+    RETURN CASE WHEN h.title STARTS WITH '<' THEN h.uri ELSE h.title END AS title, h.uri AS page, r.snippet AS passage, r.score AS score, r.mode AS foundBy
     ORDER BY score DESC LIMIT 8
+
+- name: Docs
+  description: >-
+    SELECT THIS for "what do the docs say about X" when the answer may be in Spring's documentation,
+    in the project's own documents, or in what the team has added. Passages closest in meaning to
+    the words given, from three places: Spring's documentation (the reference manuals for Spring
+    Boot, Framework and Security, the migration guides and release notes); the project's own
+    Markdown and AsciiDoc files; and documents someone added on the Spring page for this project.
+    Each with where it is from, the page, its title, the passage and how close it is.
+  params:
+    words: { type: string, description: "What you want to know, in words." }
+    project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it. Empty searches Spring's documentation only." }
+  cypher: |
+    MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
+    WITH h, r, CASE WHEN $project STARTS WITH 'https://github.com/' THEN 'https://raw.githubusercontent.com/' + substring($project, 19) + '/' ELSE '~none~' END AS own,
+         'spring-notes://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '/' AS added
+    WHERE 'spring-docs' IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
+    RETURN CASE WHEN h.uri STARTS WITH added THEN 'Added by your team' WHEN h.uri STARTS WITH own THEN 'This project\'s documents' ELSE 'Spring documentation' END AS source,
+           CASE WHEN h.title STARTS WITH '<' THEN h.uri ELSE h.title END AS title, h.uri AS page, r.snippet AS passage, r.score AS score
+    ORDER BY score DESC LIMIT 10
+
+- name: DocsAnswer
+  description: >-
+    SELECT THIS for a written answer to a Spring question, from documentation. An answer to the
+    question, written by the appliance's model from the six passages closest to it in Spring's
+    documentation, the project's own documents and what the team added, citing each passage it
+    relies on by its number ([1], [2]); with the passages it was given, in that order. It answers
+    only from those passages and says so when they do not cover the question. One model call.
+  params:
+    words: { type: string, description: "The question, in words." }
+    project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it." }
+  cypher: |
+    MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
+    WITH h, r, CASE WHEN $project STARTS WITH 'https://github.com/' THEN 'https://raw.githubusercontent.com/' + substring($project, 19) + '/' ELSE '~none~' END AS own,
+         'spring-notes://' + CASE WHEN $project = '' THEN '~none~' WHEN $project STARTS WITH 'https://' THEN substring($project, 8) ELSE $project END + '/' AS added
+    WHERE 'spring-docs' IN h.tags OR h.uri STARTS WITH own OR h.uri STARTS WITH added
+    WITH h, r ORDER BY r.score DESC LIMIT 6
+    WITH collect({title: CASE WHEN h.title STARTS WITH '<' THEN h.uri ELSE h.title END, page: h.uri, passage: left(coalesce(r.snippet, ''), 1500)}) AS hits
+    WITH hits, reduce(t = '', i IN range(0, size(hits) - 1) | t + '[' + toString(i + 1) + '] ' + hits[i].title + '\n' + hits[i].passage + '\n\n') AS passages
+    RETURN synthesize(passages, 'Answer this question for a developer working on a Spring application: ' + $words +
+             '. Use only the numbered passages. Cite each passage you rely on by its number in square brackets. If the passages do not answer it, say what they do not cover. Three to six sentences, no preamble.') AS answer,
+           [x IN hits | x.title] AS titles, [x IN hits | x.page] AS pages

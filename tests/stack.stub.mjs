@@ -80,7 +80,11 @@ const FIX = {
                       { class: 'CartService', method: 'total', calls: 2, writes: 0, reads: 2, readOnly: false, couldBeReadOnly: true, writeCalls: [], readCalls: ['findById', 'findAll'], language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 44, link: null }],
   ControllersUsingRepositories: [], EmbabelChecks: [],
   EmbabelModel: [{ kind: 'action', name: 'priceCart', class: 'CartAgent', description: null, takes: ['Cart'], produces: 'PricedCart', declared: '@Action', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartAgent.kt', line: 12, link: null }],
-  SpringDocs: [{ title: 'Spring Boot 4.0 Migration Guide', page: 'https://example.test/guide', passage: 'To use the Jackson 2 module add the following dependency.', score: 1.0, foundBy: 'fused' }],
+  Docs: [{ source: 'Spring documentation', title: 'Spring Boot 4.0 Migration Guide', page: 'https://example.test/guide', passage: 'To use the Jackson 2 module add the following dependency.', score: 1.0 },
+         { source: 'Added by your team', title: 'Our Jackson policy', page: 'spring-notes://github.com/acme/shop/our-jackson-policy', passage: 'We stay on Jackson 2 until the billing service has moved.', score: 0.8 }],
+  DocsAnswer: [{ answer: 'Add the Jackson 2 module as a stop-gap [1]; this team stays on Jackson 2 for now [2].', titles: ['Spring Boot 4.0 Migration Guide', 'Our Jackson policy'], pages: ['https://example.test/guide', 'spring-notes://x'] }],
+  IndexedProjects: [], IndexState: [{ registered: true, indexed: 120, lastIndexedAt: null }],
+  SearchCode: [{ language: 'kotlin', kind: 'method', name: 'CartService.total', file: 'shop-web/src/main/kotlin/CartService.kt', score: 0.91, id: 'x' }],
   KnownIssues: [{ repository: 'spring-projects/spring-boot', number: 47695, title: 'ObjectMapper bean missing', state: 'closed', milestone: '4.0.1', comments: 4, opened: '2025-10-18', closed: '2025-10-19', link: 'https://example.test/issue' }],
   GradleStackCard: [],
   CodeChecks: [{ code: 'JAVA_FINAL_AUTOWIRED_FIELD', severity: 'warning', found: '@Autowired on a final field, which cannot be injected', class: 'CartService', member: 'clock', fix: 'Remove @Autowired from the field and take the dependency as a constructor parameter that assigns it.', language: 'kotlin', path: 'shop-web/src/main/kotlin/CartService.kt', line: 9, link: null }],
@@ -109,7 +113,9 @@ const stub = (mode) => `
   } } };
   window.gateway = { repository: {
     createEntry: async (a) => { window.__writes.push('create:' + a.type + ':' + JSON.stringify(a.data)); return {}; },
-    deleteEntry: async (a) => { window.__writes.push('delete:' + a.type + ':' + a.id); return {}; } } };`;
+    deleteEntry: async (a) => { window.__writes.push('delete:' + a.type + ':' + a.id); return {}; } },
+    ingest: { document: async (a) => { window.__writes.push('ingest:' + a.uri + ':' + a.title + ':' + a.sourceKind); return {}; } },
+    realms: { realmSyncDocuments: async (a) => { window.__writes.push('sync:' + a.realm + ':' + a.source); return {}; } } };`;
 
 let failures = 0;
 const ok = (cond, what) => { console.log((cond ? '  ok   ' : '  FAIL ') + what); if (!cond) failures++; };
@@ -270,13 +276,32 @@ try {
   await page.click('#panel [data-app="ask"]');
   await page.fill('#ask', 'jackson 3');
   await page.click('#askgo');
-  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Issues in the Spring projects'));
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Check it against them'));
   const asked = await text(page, '#panel');
-  ok(asked.includes('To use the Jackson 2 module') && asked.includes('#47695') && asked.includes('4.0.1'), 'asking returns a passage from the docs and a matching issue with the release that fixes it');
-  ok(await page.evaluate(() => window.__calls.filter(c => c.startsWith('SpringDocs') || c.startsWith('KnownIssues')).length) === 2, 'one search of each, made only when asked');
-  await page.click('#panel [data-app="checks"]');
-  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('final field'));
-  ok((await text(page, '#panel')).includes('take the dependency as a constructor parameter') && (await text(page, '#panel')).includes('CartService.clock'), 'a code check shows what was found, where, and the change to make');
+  const askedLow = asked.toLowerCase();
+  ok(asked.includes('stays on Jackson 2 for now [2]') && askedLow.includes('written by the appliance’s model from the 2 passages'), 'asking writes an answer from the passages, and says a model wrote it');
+  ok(askedLow.includes('[1] spring boot 4.0 migration guide') && askedLow.includes('[2] our jackson policy') && askedLow.includes('added by your team'), 'the passages are numbered as the answer cites them, each saying where it is from');
+  ok(asked.includes('#47695') && asked.includes('4.0.1'), 'with matching issues and the release that fixes each');
+  ok(await page.locator('#panel a[href^="spring-notes"]').count() === 0, 'a document the team added is not shown as a web link');
+  ok(await page.evaluate(() => window.__calls.filter(c => c.startsWith('Docs:') || c.startsWith('DocsAnswer:') || c.startsWith('KnownIssues:')).length) === 3, 'one search of each, made only when asked');
+  await page.click('#addopen');
+  await page.click('#docadd');
+  ok((await text(page, '#panel')).includes('Give it a title and some text'), 'adding a document with nothing in it is refused, in words');
+  await page.fill('#doctitle', 'Deploy Runbook!');
+  await page.fill('#doctext', 'Restart the gateway last.');
+  await page.click('#docadd');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('was added for this project'));
+  ok(await page.evaluate(() => window.__writes.includes('ingest:spring-notes://github.com/acme/shop/deploy-runbook:Deploy Runbook!:spring-notes')), 'the document is stored under this project, by a name made from its title');
+  await page.click('#indexdocs');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('is indexing the documents'));
+  ok(await page.evaluate(() => window.__writes.includes('sync:spring:project-docs')), 'indexing the project’s own documents asks the appliance to run that source');
+  await page.click('#panel [data-app="code"]');
+  await page.fill('#codeq', 'where is the total computed');
+  await page.click('#codego');
+  await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('added and the appliance is reading it now'));
+  ok(await page.evaluate(() => window.__writes.some(w => w.startsWith('create:IndexedProject:')) && window.__writes.includes('sync:polyglot-code:code-declarations')), 'a project not in the code index is added to it and the index is asked to read it, and the page says so');
+  ok(!(await page.evaluate(() => window.__calls.some(c => c.startsWith('SearchCode')))), 'and no search is run against an index that does not hold it yet');
+
   await page.click('#panel [data-app="wiring"]');
   await page.waitForFunction(() => document.querySelector('#panel')?.textContent.includes('Most asked for'));
   ok((await text(page, '#panel')).includes('3 found in main source'), 'wiring lists three injection points');
@@ -288,9 +313,10 @@ try {
   ok((await text(page, '#panel [data-app="endpoints"]')).includes('2'), 'a section already read shows its count on its button');
 
   await page.click('button[data-tab="beans"]');
-  await page.waitForTimeout(1300);
+  /* The panel redraws once a second, at whatever phase the page's clock is in: by 1.7 s the last redraw was at 0.7 s or later, which reads as 1 s. */
+  await page.waitForTimeout(1700);
   const loading = await text(page, '#panel');
-  ok(/Reading every @Bean.*Kotlin.*— [1-9] s/.test(loading), 'while beans are read the panel says what is being read and for how long: ' + loading.trim().slice(0, 90));
+  ok(/Reading every @Bean.*Kotlin.*— [1-9] s/.test(loading), 'while beans are read the panel says what is being read and for how long: ' + loading.trim().slice(0, 190));
   await page.click('button[data-tab="profiles"]');   /* a click while the slow call is in flight */
   await page.waitForSelector('#panel table');
   ok((await text(page, '#panel')).includes('application-dev.yml'), 'another tab opens while beans are still loading');

@@ -9,3 +9,6 @@
 
 # Every call in a project's Java, Kotlin and Scala source, by name: what a method does inside a transaction.
 - { name: springCalls, kind: source-tree, emit: calls, languages: [java, kotlin, scala] }
+
+# The files of a project kept on the Spring page: which of them are documents to index.
+- { name: springProjectFiles, kind: source-tree, emit: projectFiles }
