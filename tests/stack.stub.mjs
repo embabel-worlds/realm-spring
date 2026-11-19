@@ -39,7 +39,7 @@ const FIX = {
   PackageFiles: [
     { file: 'Cart.kt', language: 'kt', path: 'shop-web/src/main/kotlin/com/acme/shop/web/cart/Cart.kt', link: 'https://github.com/acme/shop/blob/1915b70/shop-web/src/main/kotlin/com/acme/shop/web/cart/Cart.kt' },
     { file: 'CartController.kt', language: 'kt', path: 'shop-web/src/main/kotlin/com/acme/shop/web/cart/CartController.kt', link: null }],
-  ProjectLanguages: [
+  FilesByExtension: [
     { extension: 'kt', files: 60, mainFiles: 45, testFiles: 15, modules: 2 }, { extension: 'java', files: 30, mainFiles: 24, testFiles: 6, modules: 2 },
     { extension: 'ts', files: 10, mainFiles: 0, testFiles: 0, modules: 1 }, { extension: 'yml', files: 12, mainFiles: 4, testFiles: 2, modules: 3 },
     { extension: 'zzz', files: 99, mainFiles: 0, testFiles: 0, modules: 1 }],

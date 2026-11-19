@@ -10,7 +10,7 @@
 <script src="/api/v1/apps-runtime/v1/embabel.js"></script>
 <script src="/api/v1/apps-runtime/gateway.js"></script>
 <script type="application/embabel-app+json">
-{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","ProjectLanguages","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
+{"version":1,"name":"spring-stack","requires":{"lenses":[],"views":["ProjectOverview","StackCard","BootLines","ModernizationFindings","ConfigurationProblems","UpgradeConfiguration","Vulnerabilities","VersionOverrides","VulnerableDependencies","Beans","Profiles","Triage","MyProjects","ModuleSources","ModulePackages","PackageFiles","FilesByExtension","WhyNotApplied","RuntimeBeans","EffectiveSettings","ShippedVulnerabilities"],"realms":["realm-spring","realm-java-project"],"namespaces":[]}}
 </script>
 <style>
   :root{--bg:#0b0d10;--surface:#12161b;--surface2:#171c22;--border:#232a33;--text:#e6e9ee;--dim:#8b95a3;
@@ -555,7 +555,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
         state.overview = rows[0] || null;
         if (state.overview) mark('code', 'done', state.overview.moduleCount + ' module(s), ' + state.overview.types + ' types, ' + state.overview.settings + ' settings, ' + state.overview.dependencies + ' dependencies');
       }).catch(function () {});
-      view('ProjectLanguages', { project: key }).then(function (rows) { if (key === state.project) { state.languages = rows; renderMadeOf(); } }).catch(function () {});
+      view('FilesByExtension', { project: key }).then(function (rows) { if (key === state.project) { state.languages = rows; renderMadeOf(); } }).catch(function () {});
       view('ModuleSources', { project: key }).then(function (rows) { if (key === state.project) { state.modules = rows; renderMadeOf(); drawProgress(); if (state.tab === 'structure') render(); } }).catch(function () {});
       renderStack();
       supportFinding();
