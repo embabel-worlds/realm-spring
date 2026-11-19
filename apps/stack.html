@@ -369,16 +369,24 @@ RETURN bootVersion, frameworkVersion, line + &#x27;.x&#x27; AS bootLine,
             ELSE &#x27;unsupported&#x27; END AS support,
        myCycle.supportedJavaVersions AS javaVersions, myCycle.latest AS latestPatch,
        newest.name AS newestLine, newest.ossSupportEndDate AS newestSupportEnds</pre></details>
-  <details><summary><b>CodeChecks</b> — SELECT THIS for &quot;what is wrong with this Spring code&quot;, &quot;review the Spring usage&quot;, &quot;what should be cleaned up before upgrading&quot;. Checks over the project&#x27;s main source in Java, Kotlin and Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong or risky; hint: needlessly old style), what was found, the class and member, file and line, and `fix`, the change to make. Covers: classes extending the removed WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or component; final @Autowired fields; field injection; @Autowired on a class&#x27;s only constructor; @RequestMapping with a single method where @GetMapping and the rest say it better; @Controller with @ResponseBody; @Repository on a Spring Data repository interface; public @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on private methods (never applied, since the proxy cannot see them). Read from declarations and their annotations as written; nothing is compiled or run.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+  <details><summary><b>CodeChecks</b> — SELECT THIS for &quot;what is wrong with this Spring code&quot;, &quot;review the Spring usage&quot;, &quot;what should be cleaned up before upgrading&quot;. Checks over the project&#x27;s main source in Java, Kotlin and Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong or risky; hint: needlessly old style), what was found, the class and member, file and line, and `fix`, the change to make. Covers: classes extending the removed WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or component; final @Autowired fields; field injection; @Autowired on a Java class&#x27;s only constructor (not Kotlin or Scala, where a secondary constructor beside a primary one needs it); @RequestMapping with a single method where @GetMapping and the rest say it better; @Controller with @ResponseBody; a name on @PathVariable or @RequestParam that repeats the parameter&#x27;s own (Java); a controller whose mappings all share a first path segment; @Repository on a Spring Data repository interface; public @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on private methods (never applied, since the proxy cannot see them). Read from declarations and their annotations as written; nothing is compiled or run.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;, &#x27;function&#x27;]
   AND (size(d.annotations) &gt; 0 OR d.signature CONTAINS &#x27;WebSecurityConfigurerAdapter&#x27; OR d.kind = &#x27;constructor&#x27;)
 WITH collect(d) AS all
 WITH all,
      [x IN all WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Configuration&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;TestConfiguration&#x27;, &#x27;AutoConfiguration&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Repository&#x27;]) | x.path + &#x27;#&#x27; + x.name] AS containers,
-     [x IN all WHERE x.kind = &#x27;constructor&#x27; | x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;))] AS ctorOwners
+     [x IN all WHERE x.kind = &#x27;constructor&#x27; | x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;))] AS ctorOwners,
+     /* Each handler&#x27;s first path segment, by the class it is in: what a class-level @RequestMapping would hold. */
+     [x IN all WHERE x.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND ANY(t IN x.annotationText WHERE t CONTAINS &#x27;Mapping&#x27; AND t CONTAINS &#x27;&quot;/&#x27;)
+        | [x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;)), split(split([t IN x.annotationText WHERE t CONTAINS &#x27;Mapping&#x27; AND t CONTAINS &#x27;&quot;/&#x27;][0], &#x27;&quot;/&#x27;)[1], &#x27;&quot;&#x27;)[0]]] AS handlerPaths
 UNWIND all AS d
 WITH d, containers, ctorOwners, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName,
+     [h IN handlerPaths WHERE h[0] = d.path + &#x27;#&#x27; + d.name | split(h[1], &#x27;/&#x27;)[0]] AS firstSegments,
      reduce(t = &#x27;&#x27;, x IN d.annotationText | t + &#x27; &#x27; + x) AS written
+WITH d, containers, ctorOwners, ownerName, written, firstSegments,
+     [name IN [piece IN tail(split(d.signature, &#x27;@PathVariable(&quot;&#x27;)) | split(piece, &#x27;&quot;&#x27;)[0]] +
+              [piece IN tail(split(d.signature, &#x27;@RequestParam(&quot;&#x27;)) | split(piece, &#x27;&quot;&#x27;)[0]]
+        WHERE d.signature CONTAINS &#x27;&quot;&#x27; + name + &#x27;&quot;) &#x27; AND (d.signature CONTAINS &#x27; &#x27; + name + &#x27;,&#x27; OR d.signature CONTAINS &#x27; &#x27; + name + &#x27;)&#x27;)] AS sameNames
 WITH d, ownerName, written,
      [f IN [
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND (d.signature CONTAINS &#x27;extends WebSecurityConfigurerAdapter&#x27; OR d.signature CONTAINS &#x27;: WebSecurityConfigurerAdapter&#x27;)
@@ -393,12 +401,19 @@ WITH d, ownerName, written,
        CASE WHEN d.kind = &#x27;field&#x27; AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Inject&#x27;]) AND NOT (d.signature CONTAINS &#x27; final &#x27; OR d.signature CONTAINS &#x27; val &#x27;)
             THEN [&#x27;JAVA_CONSTRUCTOR_PARAMETER_INJECTION&#x27;, &#x27;hint&#x27;, &#x27;Field injection&#x27;,
                   &#x27;Make the field final (val in Kotlin), remove @Autowired, and take it as a constructor parameter. The class can then be built in a test without a Spring context.&#x27;] END,
-       CASE WHEN d.kind = &#x27;constructor&#x27; AND &#x27;Autowired&#x27; IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + &#x27;#&#x27; + ownerName]) = 1
+       CASE WHEN d.kind = &#x27;constructor&#x27; AND d.language = &#x27;java&#x27; AND &#x27;Autowired&#x27; IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + &#x27;#&#x27; + ownerName]) = 1
             THEN [&#x27;JAVA_AUTOWIRED_CONSTRUCTOR&#x27;, &#x27;hint&#x27;, &#x27;@Autowired on the only constructor, where it is not needed&#x27;,
                   &#x27;Remove @Autowired from the constructor. Spring uses a class\&#x27;s single constructor without it.&#x27;] END,
        CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND written CONTAINS &#x27;@RequestMapping&#x27; AND written CONTAINS &#x27;RequestMethod.&#x27; AND NOT split(written, &#x27;RequestMethod.&#x27;)[1] CONTAINS &#x27;RequestMethod.&#x27;
             THEN [&#x27;JAVA_PRECISE_REQUEST_MAPPING&#x27;, &#x27;hint&#x27;, &#x27;@RequestMapping with one HTTP method&#x27;,
                   &#x27;Replace with the matching annotation: @GetMapping, @PostMapping, @PutMapping, @DeleteMapping or @PatchMapping, keeping the path and other attributes.&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND d.language = &#x27;java&#x27; AND size(sameNames) &gt; 0
+            THEN [&#x27;WEB_ANNOTATION_NAMES&#x27;, &#x27;hint&#x27;, &#x27;Name given to @PathVariable or @RequestParam that is the parameter\&#x27;s own name: &#x27; + reduce(t = &#x27;&#x27;, n IN sameNames | t + CASE WHEN t = &#x27;&#x27; THEN &#x27;&#x27; ELSE &#x27;, &#x27; END + n),
+                  &#x27;Remove the name from the annotation: @PathVariable int ownerId binds by the parameter name. Keep it only where the two differ. (Needs the -parameters compiler flag, which Spring Boot\&#x27;s build plugins set.)&#x27;] END,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN d.annotations WHERE a IN [&#x27;Controller&#x27;, &#x27;RestController&#x27;]) AND NOT written CONTAINS &#x27;@RequestMapping&#x27;
+                 AND size(firstSegments) &gt;= 2 AND firstSegments[0] &lt;&gt; &#x27;&#x27; AND NOT firstSegments[0] CONTAINS &#x27;{&#x27; AND ALL(x IN firstSegments WHERE x = firstSegments[0])
+            THEN [&#x27;EXTRACT_REQUEST_MAPPING_PARENT_PATH&#x27;, &#x27;hint&#x27;, &#x27;All &#x27; + toString(size(firstSegments)) + &#x27; request mappings in this controller start with /&#x27; + firstSegments[0],
+                  &#x27;Put @RequestMapping(&quot;/&#x27; + firstSegments[0] + &#x27;&quot;) on the class and remove that prefix from each method\&#x27;s mapping.&#x27;] END,
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND &#x27;Controller&#x27; IN d.annotations AND &#x27;ResponseBody&#x27; IN d.annotations
             THEN [&#x27;REST_CONTROLLER_COMBINATION&#x27;, &#x27;hint&#x27;, &#x27;@Controller with @ResponseBody&#x27;,
                   &#x27;Replace the two annotations with @RestController.&#x27;] END,
@@ -423,17 +438,128 @@ RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
        CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN null ELSE d.name END AS member,
        f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
 ORDER BY CASE f[1] WHEN &#x27;error&#x27; THEN 0 WHEN &#x27;warning&#x27; THEN 1 ELSE 2 END, code, path, line LIMIT 5000</pre></details>
-  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration, @SpringBootApplication or a controller advice, Spring Data repository interfaces, and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+  <details><summary><b>TransactionalWork</b> — SELECT THIS for &quot;which transactions do the most&quot;, &quot;which transactions could be read-only&quot;, &quot;what does this transactional method touch&quot;. Every method the project&#x27;s main source runs in a transaction (@Transactional on the method, in Java, Kotlin or Scala), with what it does inside: how many calls it makes that write (save, delete, persist, merge, update, insert, remove, flush, execute), how many that read (find, get, load, query, select, exists, count, fetch), the names called, whether it is declared readOnly, and `couldBeReadOnly`: true when it is not declared readOnly, makes no call that writes and makes at least one that reads. Most calls first. Matched by the name of what is called, inside the method&#x27;s own body only: a write made by a method it calls is not seen, so couldBeReadOnly is a candidate to check, not a proof, and a method that only delegates shows no operations. @Transactional on a class is not expanded to its methods.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND &#x27;Transactional&#x27; IN d.annotations
+WITH p, collect({path: d.path, name: d.name, owner: last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)), line: d.line, url: d.url, language: d.language,
+                 written: [t IN d.annotationText WHERE t STARTS WITH &#x27;@Transactional&#x27;][0]}) AS methods
+MATCH (p)-[:CALLS_SOURCE]-&gt;(c:SpringCall)
+WHERE NOT c.path CONTAINS &#x27;src/test/&#x27;
+WITH methods, collect({path: c.path, enclosing: c.enclosing, method: c.method}) AS calls
+UNWIND methods AS m
+WITH m, [c IN calls WHERE c.path = m.path AND c.enclosing = m.name | c.method] AS called
+WITH m, called,
+     [x IN called WHERE ANY(v IN [&#x27;save&#x27;, &#x27;delete&#x27;, &#x27;persist&#x27;, &#x27;merge&#x27;, &#x27;update&#x27;, &#x27;insert&#x27;, &#x27;remove&#x27;, &#x27;flush&#x27;, &#x27;execute&#x27;, &#x27;store&#x27;, &#x27;create&#x27;] WHERE toLower(x) STARTS WITH v)] AS writes,
+     [x IN called WHERE ANY(v IN [&#x27;find&#x27;, &#x27;get&#x27;, &#x27;load&#x27;, &#x27;query&#x27;, &#x27;select&#x27;, &#x27;exists&#x27;, &#x27;count&#x27;, &#x27;fetch&#x27;, &#x27;read&#x27;, &#x27;list&#x27;] WHERE toLower(x) STARTS WITH v)] AS reads
+RETURN m.owner AS class, m.name AS method, size(called) AS calls, size(writes) AS writes, size(reads) AS reads,
+       coalesce(m.written, &#x27;&#x27;) CONTAINS &#x27;readOnly&#x27; AND replace(coalesce(m.written, &#x27;&#x27;), &#x27; &#x27;, &#x27;&#x27;) CONTAINS &#x27;readOnly=true&#x27; AS readOnly,
+       NOT replace(coalesce(m.written, &#x27;&#x27;), &#x27; &#x27;, &#x27;&#x27;) CONTAINS &#x27;readOnly=true&#x27; AND size(writes) = 0 AND size(reads) &gt; 0 AS couldBeReadOnly,
+       writes AS writeCalls, reads AS readCalls, m.language AS language, m.path AS path, m.line AS line, m.url AS link
+ORDER BY calls DESC, class, method LIMIT 5000</pre></details>
+  <details><summary><b>ControllersUsingRepositories</b> — SELECT THIS for &quot;which controllers talk to a repository directly&quot;, &quot;which controllers skip the service layer&quot;, &quot;where is persistence reached from the web layer&quot;. Every controller (@Controller or @RestController) that injects a repository: a Spring Data repository interface or a class annotated @Repository. One row per controller and repository, with how it is injected and the controller&#x27;s file and line, and how many endpoints the controller serves. In Java, Kotlin and Scala. Matched by type name as written; a repository reached through a service is not listed, which is the point. Whether this is a problem is a matter of house style: it is normal in a small application and usually unwanted in a layered one.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;, &#x27;function&#x27;]
+WITH collect(d) AS all
+WITH all,
+     [x IN all WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Controller&#x27;, &#x27;RestController&#x27;]) | x.name] AS controllers,
+     [x IN all WHERE (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;) OR (x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND &#x27;Repository&#x27; IN x.annotations) | x.name] AS repositories,
+     [x IN all WHERE x.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND ANY(a IN x.annotations WHERE a ENDS WITH &#x27;Mapping&#x27;) | last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;))] AS handlerOwners
+UNWIND all AS d
+WITH d, controllers, repositories, handlerOwners, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName
+WHERE (d.kind = &#x27;constructor&#x27; AND ownerName IN controllers)
+   OR (d.kind = &#x27;class&#x27; AND d.language &lt;&gt; &#x27;java&#x27; AND d.signature CONTAINS &#x27;(&#x27; AND d.name IN controllers)
+   OR (d.kind = &#x27;field&#x27; AND ownerName IN controllers AND ANY(a IN d.annotations WHERE a IN [&#x27;Autowired&#x27;, &#x27;Inject&#x27;, &#x27;Resource&#x27;]))
+WITH d, repositories, handlerOwners, CASE WHEN d.kind = &#x27;class&#x27; THEN d.name ELSE ownerName END AS controller, split(d.signature, &#x27;) :&#x27;)[0] AS head
+WITH d, repositories, handlerOwners, controller,
+     CASE WHEN d.kind = &#x27;field&#x27; THEN d.signature ELSE substring(head, size(split(head, &#x27;(&#x27;)[0]) + 1) END AS asked
+UNWIND split(asked, &#x27;,&#x27;) AS piece
+WITH d, repositories, handlerOwners, controller, trim(replace(piece, &#x27;)&#x27;, &#x27;&#x27;)) AS piece
+WITH d, repositories, handlerOwners, controller, piece, split(piece, &#x27; &#x27;) AS tokens
+WITH d, repositories, handlerOwners, controller,
+     replace(CASE WHEN d.language &lt;&gt; &#x27;java&#x27; AND piece CONTAINS &#x27;:&#x27; THEN trim(split(last(split(piece, &#x27;:&#x27;)), &#x27;=&#x27;)[0])
+                  WHEN d.language = &#x27;java&#x27; AND size(tokens) &gt;= 2 THEN tokens[size(tokens) - 2]
+                  ELSE &#x27;&#x27; END, &#x27;?&#x27;, &#x27;&#x27;) AS written
+WITH d, handlerOwners, controller, split(written, &#x27;&lt;&#x27;)[0] AS type, repositories
+WHERE type IN repositories
+RETURN controller, type AS repository,
+       CASE d.kind WHEN &#x27;field&#x27; THEN &#x27;field&#x27; ELSE &#x27;constructor&#x27; END AS injectedBy,
+       size([o IN handlerOwners WHERE o = controller]) AS endpoints,
+       d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY controller, repository LIMIT 5000</pre></details>
+  <details><summary><b>EmbabelModel</b> — SELECT THIS for &quot;what agents does this application define&quot;, &quot;what actions and goals does it have&quot;, &quot;which tools can the model call&quot;, &quot;what does this agent do&quot;. Everything the project&#x27;s main source declares with the Embabel agent framework&#x27;s annotations, one row each: an agent (@Agent) or component (@EmbabelComponent) class; an action (@Action) with the types it takes and the type it produces, which is what the planner chains on (`takes` is given for actions, goals and conditions; a tool&#x27;s parameters are in its signature); a goal (@AchievesGoal on an action); a condition (@Condition); a tool a model may call (@LlmTool); a workflow state (@State). Each with the class it is in, the annotation as written (description, pre and post conditions, canRerun, trigger and the rest), file and line. Read from declarations; what the planner would actually do at run time is not computed.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
-  AND (ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;]
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;Agent&#x27;, &#x27;EmbabelComponent&#x27;, &#x27;Action&#x27;, &#x27;AchievesGoal&#x27;, &#x27;Condition&#x27;, &#x27;LlmTool&#x27;, &#x27;State&#x27;])
+UNWIND [a IN d.annotations WHERE a IN [&#x27;Agent&#x27;, &#x27;EmbabelComponent&#x27;, &#x27;Action&#x27;, &#x27;AchievesGoal&#x27;, &#x27;Condition&#x27;, &#x27;LlmTool&#x27;, &#x27;State&#x27;]] AS annotation
+WITH d, annotation, [t IN d.annotationText WHERE t STARTS WITH &#x27;@&#x27; + annotation][0] AS written,
+     split(split(d.signature, &#x27;) :&#x27;)[0], &#x27;): &#x27;)[0] AS head
+WITH d, annotation, written,
+     CASE WHEN annotation IN [&#x27;Action&#x27;, &#x27;AchievesGoal&#x27;, &#x27;Condition&#x27;] AND d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND d.signature CONTAINS &#x27;(&#x27; THEN substring(head, size(split(head, &#x27;(&#x27;)[0]) + 1) ELSE &#x27;&#x27; END AS asked,
+     CASE WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND d.language &lt;&gt; &#x27;java&#x27; AND d.signature CONTAINS &#x27;): &#x27; THEN trim(split(last(split(d.signature, &#x27;): &#x27;)), &#x27;{&#x27;)[0])
+          WHEN d.kind IN [&#x27;method&#x27;, &#x27;function&#x27;] AND d.language = &#x27;java&#x27; AND d.signature CONTAINS &#x27;(&#x27; THEN split(trim(split(d.signature, &#x27;(&#x27;)[0]), &#x27; &#x27;)[size(split(trim(split(d.signature, &#x27;(&#x27;)[0]), &#x27; &#x27;)) - 2]
+          ELSE null END AS produces
+RETURN DISTINCT CASE annotation WHEN &#x27;Agent&#x27; THEN &#x27;agent&#x27; WHEN &#x27;EmbabelComponent&#x27; THEN &#x27;component&#x27; WHEN &#x27;Action&#x27; THEN &#x27;action&#x27; WHEN &#x27;AchievesGoal&#x27; THEN &#x27;goal&#x27;
+            WHEN &#x27;Condition&#x27; THEN &#x27;condition&#x27; WHEN &#x27;LlmTool&#x27; THEN &#x27;tool&#x27; ELSE &#x27;state&#x27; END AS kind,
+       d.name AS name,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN null ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN written CONTAINS &#x27;description&#x27; AND written CONTAINS &#x27;&quot;&#x27; THEN split(split(written, &#x27;description&#x27;)[1], &#x27;&quot;&#x27;)[1] END AS description,
+       [piece IN split(replace(asked, &#x27;)&#x27;, &#x27;&#x27;), &#x27;,&#x27;) WHERE trim(piece) &lt;&gt; &#x27;&#x27; |
+          CASE WHEN d.language &lt;&gt; &#x27;java&#x27; AND piece CONTAINS &#x27;:&#x27; THEN trim(split(last(split(piece, &#x27;:&#x27;)), &#x27;=&#x27;)[0])
+               ELSE split(trim(piece), &#x27; &#x27;)[size(split(trim(piece), &#x27; &#x27;)) - 2] END] AS takes,
+       produces, written AS declared, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY CASE kind WHEN &#x27;agent&#x27; THEN 0 WHEN &#x27;component&#x27; THEN 1 WHEN &#x27;goal&#x27; THEN 2 WHEN &#x27;action&#x27; THEN 3 WHEN &#x27;condition&#x27; THEN 4 WHEN &#x27;state&#x27; THEN 5 ELSE 6 END, class, line
+LIMIT 5000</pre></details>
+  <details><summary><b>EmbabelChecks</b> — SELECT THIS for &quot;what is wrong with our agents&quot;, &quot;which tools will a model misuse&quot;, &quot;review the Embabel usage&quot;. Checks on a project&#x27;s Embabel declarations, one row per finding with a code, a severity, what was found, where, and `fix`, the change to make: a tool (@LlmTool) with no description or one under 30 characters (a description built by joining strings is not measured), which a model cannot choose or call correctly; an agent (@Agent) with no goal, which a planner can never finish; an agent with no description; an action that produces nothing (Unit or void), which the planner cannot chain on. Read from declarations in Java, Kotlin and Scala.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND ANY(a IN d.annotations WHERE a IN [&#x27;Agent&#x27;, &#x27;Action&#x27;, &#x27;AchievesGoal&#x27;, &#x27;LlmTool&#x27;])
+WITH collect(d) AS all
+WITH all, [x IN all WHERE &#x27;AchievesGoal&#x27; IN x.annotations | x.path + &#x27;#&#x27; + last(split(coalesce(x.owner, &#x27;&#x27;), &#x27;.&#x27;))] AS goalOwners
+UNWIND all AS d
+WITH d, goalOwners, reduce(t = &#x27;&#x27;, x IN d.annotationText | t + &#x27; &#x27; + x) AS written,
+     [t IN d.annotationText WHERE t STARTS WITH &#x27;@LlmTool&#x27;][0] AS tool, [t IN d.annotationText WHERE t STARTS WITH &#x27;@Agent&#x27;][0] AS agent
+WITH d, [f IN [
+       CASE WHEN tool IS NOT NULL AND NOT tool CONTAINS &#x27;description&#x27; AND NOT (tool CONTAINS &#x27;(&#x27; AND trim(split(tool, &#x27;(&#x27;)[1]) STARTS WITH &#x27;&quot;&#x27;)
+            THEN [&#x27;TOOL_WITHOUT_DESCRIPTION&#x27;, &#x27;warning&#x27;, &#x27;A tool with no description&#x27;,
+                  &#x27;Give @LlmTool a description that says what the tool does, when to use it and what it returns. It is the only thing a model has to choose the tool by.&#x27;] END,
+       CASE WHEN tool IS NOT NULL AND tool CONTAINS &#x27;description&#x27; AND split(tool, &#x27;description&#x27;)[1] CONTAINS &#x27;&quot;&#x27;
+                 AND size(split(split(tool, &#x27;description&#x27;)[1], &#x27;&quot;&#x27;)) = 3 AND size(split(split(tool, &#x27;description&#x27;)[1], &#x27;&quot;&#x27;)[1]) &lt; 30
+            THEN [&#x27;TOOL_DESCRIPTION_TOO_SHORT&#x27;, &#x27;hint&#x27;, &#x27;A tool described in &#x27; + toString(size(split(split(tool, &#x27;description&#x27;)[1], &#x27;&quot;&#x27;)[1])) + &#x27; characters: &quot;&#x27; + split(split(tool, &#x27;description&#x27;)[1], &#x27;&quot;&#x27;)[1] + &#x27;&quot;&#x27;,
+                  &#x27;Lengthen the description: say what the tool does, when a model should call it, and what each argument means.&#x27;] END,
+       CASE WHEN agent IS NOT NULL AND NOT (d.path + &#x27;#&#x27; + d.name) IN goalOwners
+            THEN [&#x27;AGENT_WITHOUT_GOAL&#x27;, &#x27;warning&#x27;, &#x27;An agent none of whose actions achieves a goal&#x27;,
+                  &#x27;Annotate the action that completes the agent\&#x27;s work with @AchievesGoal and a description. Without a goal a planner has nothing to plan towards.&#x27;] END,
+       CASE WHEN agent IS NOT NULL AND NOT agent CONTAINS &#x27;description&#x27;
+            THEN [&#x27;AGENT_WITHOUT_DESCRIPTION&#x27;, &#x27;warning&#x27;, &#x27;An agent with no description&#x27;,
+                  &#x27;Give @Agent a description of what the agent is for. It is how the agent is chosen for a request.&#x27;] END,
+       CASE WHEN &#x27;Action&#x27; IN d.annotations AND d.language &lt;&gt; &#x27;java&#x27; AND d.signature CONTAINS &#x27;(&#x27; AND NOT d.signature CONTAINS &#x27;): &#x27; AND NOT written CONTAINS &#x27;trigger&#x27;
+            THEN [&#x27;ACTION_PRODUCES_NOTHING&#x27;, &#x27;hint&#x27;, &#x27;An action that returns nothing&#x27;,
+                  &#x27;Return a value of a type of its own from the action. A planner chains actions by the types they produce; an action producing nothing can only be reached by its preconditions and leads nowhere.&#x27;] END,
+       CASE WHEN &#x27;Action&#x27; IN d.annotations AND d.language = &#x27;java&#x27; AND d.signature CONTAINS &#x27; void &#x27;
+            THEN [&#x27;ACTION_PRODUCES_NOTHING&#x27;, &#x27;hint&#x27;, &#x27;An action that returns nothing&#x27;,
+                  &#x27;Return a value of a type of its own from the action. A planner chains actions by the types they produce; an action producing nothing can only be reached by its preconditions and leads nowhere.&#x27;] END
+     ] WHERE f IS NOT NULL] AS findings
+UNWIND findings AS f
+RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN d.name ELSE last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) END AS class,
+       CASE WHEN d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] THEN null ELSE d.name END AS member,
+       f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+ORDER BY CASE f[1] WHEN &#x27;warning&#x27; THEN 0 ELSE 1 END, code, path, line LIMIT 5000</pre></details>
+  <details><summary><b>SpringDocs</b> — SELECT THIS for &quot;what do the Spring docs say about X&quot;, &quot;how do I migrate X&quot;, &quot;what replaced this property&quot;. Passages of Spring&#x27;s own documentation closest in meaning to the words given: the Spring Boot 2.0, 3.0 and 4.0 migration guides, the 3.5, 4.0 and 4.1 release notes, the upgrading guide, the Spring Framework 6 and 7 upgrade notes, Spring Security&#x27;s migration and configuration pages, and the reference pages on configuration, profiles, auto-configuration and actuator endpoints. Each with the page it is from, its title, the passage and how close it is. A short curated set, not the whole reference manual.</summary><pre class="mono">MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]-&gt;(h:SpringDocHit)
+WHERE &#x27;spring-docs&#x27; IN h.tags
+RETURN h.title AS title, h.uri AS page, r.snippet AS passage, r.score AS score, r.mode AS foundBy
+ORDER BY score DESC LIMIT 8</pre></details>
+  <details><summary><b>KnownIssues</b> — SELECT THIS for &quot;is this a known bug&quot;, &quot;has anyone reported this error&quot;, &quot;is there an issue for X in Spring Boot&quot;. Issues in the Spring projects&#x27; own GitHub trackers (the spring-projects organisation) that match the words given: an exception message, a class or property name, a symptom. Each with its repository, number, title, whether it is open, the milestone it is assigned to (usually the release that fixes it), comment count and link, best match first. At most 15. Pass the distinctive words of an error, not a whole stack trace. GitHub allows about ten keyless searches a minute; answers are kept for an hour.</summary><pre class="mono">MATCH (s:Concept {value: $words})-[:RELEVANT_TO]-&gt;(i:SpringIssue)
+RETURN split(i.repositoryUrl, &#x27;/repos/&#x27;)[1] AS repository, i.number AS number, i.title AS title, i.state AS state,
+       i.milestone AS milestone, i.comments AS comments, left(i.createdAt, 10) AS opened, left(coalesce(i.closedAt, &#x27;&#x27;), 10) AS closed, i.url AS link
+LIMIT 15</pre></details>
+  <details><summary><b>Beans</b> — Every bean the project&#x27;s source declares, in Java, Kotlin or Scala: classes annotated @Component, @Service, @Repository, @Controller, @RestController, @Configuration, @SpringBootApplication or a controller advice, Spring Data repository interfaces, OpenFeign clients (@FeignClient), and @Bean methods — each with the profiles and conditions written on it or on its class, and a link to its line. What the source says; a running app&#x27;s RuntimeBeans says what was actually created. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
+WHERE NOT d.path CONTAINS &#x27;src/test/&#x27;
+  AND (ANY(a IN d.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;FeignClient&#x27;]
                                     OR ANY(g IN [&#x27;Profile&#x27;, &#x27;Conditional&#x27;] WHERE a STARTS WITH g))
        OR (d.kind = &#x27;interface&#x27; AND d.signature CONTAINS &#x27;Repository&lt;&#x27;))
 // One pass: the beans, and the classes that carry a profile or a condition their @Bean methods inherit.
 WITH [x IN collect(d) WHERE x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;] AND ANY(a IN x.annotations WHERE a = &#x27;Profile&#x27; OR a STARTS WITH &#x27;Conditional&#x27;)
       | {path: x.path, name: x.name, text: x.annotationText}] AS gates,
-     [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;]) OR (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;)] AS beans
+     [x IN collect(d) WHERE ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;Bean&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;FeignClient&#x27;]) OR (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;)] AS beans
 UNWIND beans AS d
-WITH d, coalesce([a IN d.annotations WHERE a IN [&#x27;Bean&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;Configuration&#x27;, &#x27;RestController&#x27;, &#x27;Controller&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Component&#x27;]][0], &#x27;Spring Data repository&#x27;) AS stereotype,
+WITH d, coalesce([a IN d.annotations WHERE a IN [&#x27;Bean&#x27;, &#x27;SpringBootApplication&#x27;, &#x27;Configuration&#x27;, &#x27;RestController&#x27;, &#x27;Controller&#x27;, &#x27;RestControllerAdvice&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Component&#x27;, &#x27;FeignClient&#x27;]][0], &#x27;Spring Data repository&#x27;) AS stereotype,
      d.annotationText + reduce(acc = [], g IN [x IN gates WHERE x.path = d.path AND x.name = last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;))] | acc + g.text) AS written
 RETURN CASE WHEN stereotype = &#x27;Bean&#x27; THEN coalesce(d.owner, &#x27;&#x27;) + &#x27;#&#x27; + d.name ELSE CASE WHEN coalesce(d.owner, &#x27;&#x27;) = &#x27;&#x27; THEN d.name ELSE d.owner + &#x27;.&#x27; + d.name END END AS bean,
        CASE WHEN stereotype = &#x27;Bean&#x27; THEN &#x27;@Bean method&#x27; WHEN stereotype = &#x27;Spring Data repository&#x27; THEN stereotype ELSE &#x27;@&#x27; + stereotype END AS declaredBy,
@@ -446,7 +572,7 @@ ORDER BY declaredBy, bean LIMIT 5000</pre></details>
   <details><summary><b>BeanWiring</b> — SELECT THIS for &quot;what does this bean depend on&quot;, &quot;what uses OwnerRepository&quot;, &quot;which beans inject X&quot;. Every injection point the project&#x27;s source declares, in Java, Kotlin or Scala: each constructor parameter of a bean class (a Kotlin primary constructor included), each field annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider of a type is that type), how it is injected, and whether a bean class of that name is declared in this project, counting Spring Data repository interfaces (false means another interface, a @Bean method&#x27;s product, or a bean from a library). Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations as written and matched by simple name: which implementation is injected is not resolved. Test source is left out.</summary><pre class="mono">MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]-&gt;(d:SpringDeclaration)
 WHERE NOT d.path CONTAINS &#x27;src/test/&#x27; AND d.kind IN [&#x27;class&#x27;, &#x27;object&#x27;, &#x27;interface&#x27;, &#x27;constructor&#x27;, &#x27;field&#x27;, &#x27;method&#x27;]
 WITH collect(d) AS all
-WITH all, [x IN all WHERE (x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])) OR (x.kind = &#x27;interface&#x27; AND x.signature CONTAINS &#x27;Repository&lt;&#x27;) | x.name] AS beanNames
+WITH all, [x IN all WHERE (x.kind IN [&#x27;class&#x27;, &#x27;object&#x27;] AND ANY(a IN x.annotations WHERE a IN [&#x27;Component&#x27;, &#x27;Service&#x27;, &#x27;Repository&#x27;, &#x27;Controller&#x27;, &#x27;RestController&#x27;, &#x27;Configuration&#x27;, &#x27;ControllerAdvice&#x27;, &#x27;RestControllerAdvice&#x27;])) OR (x.kind = &#x27;interface&#x27; AND (x.signature CONTAINS &#x27;Repository&lt;&#x27; OR &#x27;FeignClient&#x27; IN x.annotations)) | x.name] AS beanNames
 UNWIND all AS d
 WITH d, beanNames, last(split(coalesce(d.owner, &#x27;&#x27;), &#x27;.&#x27;)) AS ownerName
 WHERE (d.kind = &#x27;constructor&#x27; AND ownerName IN beanNames)
