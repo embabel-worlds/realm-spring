@@ -258,3 +258,50 @@
     RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
            p.modules AS modules, p.analysedAt AS analysedAt, p.failed AS failed
     ORDER BY analysedAt DESC LIMIT 200
+
+- name: BeanWiring
+  description: >-
+    SELECT THIS for "what does this bean depend on", "what uses OwnerRepository", "which beans
+    inject X". Every injection point the project's source declares, in Java, Kotlin or Scala: each
+    constructor parameter of a bean class (a Kotlin primary constructor included), each field
+    annotated @Autowired, @Inject or @Resource, and each parameter of a @Bean method. One row per
+    injection point: the bean that asks, the type it asks for (a List, Optional or ObjectProvider
+    of a type is that type), how it is injected, and whether a bean class of that name is declared
+    in this project (false means an interface, a @Bean method's product, or a bean from a library).
+    Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations
+    as written and matched by simple name: which implementation is injected is not resolved. Test
+    source is left out.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'constructor', 'field', 'method']
+    WITH collect(d) AS all
+    WITH all, [x IN all WHERE x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Component', 'Service', 'Repository', 'Controller', 'RestController', 'Configuration', 'ControllerAdvice', 'RestControllerAdvice']) | x.name] AS beanNames
+    UNWIND all AS d
+    WITH d, beanNames, last(split(coalesce(d.owner, ''), '.')) AS ownerName
+    WHERE (d.kind = 'constructor' AND ownerName IN beanNames)
+       OR (d.kind = 'class' AND d.language <> 'java' AND d.signature CONTAINS '(' AND d.name IN beanNames)
+       OR (d.kind = 'field' AND ANY(a IN d.annotations WHERE a IN ['Autowired', 'Inject', 'Resource']))
+       OR (d.kind = 'method' AND 'Bean' IN d.annotations AND d.signature CONTAINS '(')
+    WITH d, beanNames, ownerName, split(d.signature, ') :')[0] AS head
+    WITH d, beanNames, ownerName,
+         CASE WHEN d.kind = 'field' THEN d.signature ELSE substring(head, size(split(head, '(')[0]) + 1) END AS asked
+    UNWIND split(asked, ',') AS piece
+    WITH d, beanNames, ownerName, trim(replace(piece, ')', '')) AS piece
+    WITH d, beanNames, ownerName, piece, split(piece, ' ') AS tokens
+    WITH d, beanNames, ownerName,
+         CASE WHEN d.language <> 'java' AND piece CONTAINS ':' THEN trim(split(last(split(piece, ':')), '=')[0])
+              WHEN d.language = 'java' AND size(tokens) >= 2 THEN tokens[size(tokens) - 2]
+              ELSE '' END AS written
+    WITH d, beanNames, ownerName, replace(written, '?', '') AS written
+    WITH d, beanNames, ownerName, written,
+         CASE WHEN written CONTAINS '<' AND split(written, '<')[0] IN ['List', 'Set', 'Collection', 'Optional', 'ObjectProvider', 'Provider', 'Lazy']
+              THEN split(split(written, '<')[1], '>')[0] ELSE split(written, '<')[0] END AS type
+    WHERE type <> '' AND NOT type CONTAINS '>' AND NOT type CONTAINS ' ' AND toUpper(left(type, 1)) = left(type, 1) AND toLower(left(type, 1)) <> left(type, 1)
+    RETURN CASE WHEN d.kind = 'method' THEN coalesce(d.owner, '') + '#' + d.name WHEN d.kind = 'class' THEN d.name ELSE ownerName END AS bean,
+           type, written AS asWritten,
+           CASE d.kind WHEN 'field' THEN 'field' WHEN 'method' THEN '@Bean method parameter' ELSE 'constructor' END AS injectedBy,
+           type IN beanNames AS declaredHere,
+           d.language AS language, d.path AS file, d.line AS line, d.url AS link
+    ORDER BY bean, type LIMIT 20000
