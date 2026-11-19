@@ -1,0 +1,75 @@
+# CODE CHECKS: Spring idioms that are wrong, removed or needlessly old, found in declarations as
+# written, in Java, Kotlin or Scala. Each finding carries what to change, written so that a coding
+# agent can make the change and a person can judge it.
+
+- name: CodeChecks
+  description: >-
+    SELECT THIS for "what is wrong with this Spring code", "review the Spring usage", "what should
+    be cleaned up before upgrading". Checks over the project's main source in Java, Kotlin and
+    Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong
+    or risky; hint: needlessly old style), what was found, the class and member, file and line,
+    and `fix`, the change to make. Covers: classes extending the removed
+    WebSecurityConfigurerAdapter; @Bean methods in a class that is not a configuration or
+    component; final @Autowired fields; field injection; @Autowired on a class's only constructor;
+    @RequestMapping with a single method where @GetMapping and the rest say it better;
+    @Controller with @ResponseBody; @Repository on a Spring Data repository interface; public
+    @Bean methods; @Scheduled cron expressions without six fields; @Async or @Transactional on
+    private methods (never applied, since the proxy cannot see them). Read from declarations and
+    their annotations as written; nothing is compiled or run.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method', 'function']
+      AND (size(d.annotations) > 0 OR d.signature CONTAINS 'WebSecurityConfigurerAdapter' OR d.kind = 'constructor')
+    WITH collect(d) AS all
+    WITH all,
+         [x IN all WHERE x.kind IN ['class', 'object'] AND ANY(a IN x.annotations WHERE a IN ['Configuration', 'SpringBootApplication', 'Component', 'Service', 'TestConfiguration', 'AutoConfiguration', 'Controller', 'RestController', 'Repository']) | x.path + '#' + x.name] AS containers,
+         [x IN all WHERE x.kind = 'constructor' | x.path + '#' + last(split(coalesce(x.owner, ''), '.'))] AS ctorOwners
+    UNWIND all AS d
+    WITH d, containers, ctorOwners, last(split(coalesce(d.owner, ''), '.')) AS ownerName,
+         reduce(t = '', x IN d.annotationText | t + ' ' + x) AS written
+    WITH d, ownerName, written,
+         [f IN [
+           CASE WHEN d.kind IN ['class', 'object'] AND (d.signature CONTAINS 'extends WebSecurityConfigurerAdapter' OR d.signature CONTAINS ': WebSecurityConfigurerAdapter')
+                THEN ['WEB_SECURITY_CONFIGURER_ADAPTER', 'error', 'Extends WebSecurityConfigurerAdapter, which Spring Security 6 removed',
+                      'Make the class a plain @Configuration. Turn configure(HttpSecurity) into a @Bean method returning SecurityFilterChain that ends in http.build(), and configure(WebSecurity) into a @Bean WebSecurityCustomizer. Use the lambda DSL (authorizeHttpRequests(a -> ...)).'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND 'Bean' IN d.annotations AND ownerName <> '' AND NOT (d.path + '#' + ownerName) IN containers
+                THEN ['MISSING_CONFIGURATION_ANNOTATION', 'warning', '@Bean method in a class that is not a configuration or component, so the bean is never registered unless the class is imported',
+                      'Annotate the enclosing class with @Configuration (use proxyBeanMethods = false if its @Bean methods do not call each other), or confirm that it is registered through @Import.'] END,
+           CASE WHEN d.kind = 'field' AND 'Autowired' IN d.annotations AND (d.signature CONTAINS ' final ' OR d.signature STARTS WITH 'final ' OR d.signature CONTAINS ' val ')
+                THEN ['JAVA_FINAL_AUTOWIRED_FIELD', 'warning', '@Autowired on a final field, which cannot be injected',
+                      'Remove @Autowired from the field and take the dependency as a constructor parameter that assigns it.'] END,
+           CASE WHEN d.kind = 'field' AND ANY(a IN d.annotations WHERE a IN ['Autowired', 'Inject']) AND NOT (d.signature CONTAINS ' final ' OR d.signature CONTAINS ' val ')
+                THEN ['JAVA_CONSTRUCTOR_PARAMETER_INJECTION', 'hint', 'Field injection',
+                      'Make the field final (val in Kotlin), remove @Autowired, and take it as a constructor parameter. The class can then be built in a test without a Spring context.'] END,
+           CASE WHEN d.kind = 'constructor' AND 'Autowired' IN d.annotations AND size([o IN ctorOwners WHERE o = d.path + '#' + ownerName]) = 1
+                THEN ['JAVA_AUTOWIRED_CONSTRUCTOR', 'hint', '@Autowired on the only constructor, where it is not needed',
+                      'Remove @Autowired from the constructor. Spring uses a class\'s single constructor without it.'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND written CONTAINS '@RequestMapping' AND written CONTAINS 'RequestMethod.' AND NOT split(written, 'RequestMethod.')[1] CONTAINS 'RequestMethod.'
+                THEN ['JAVA_PRECISE_REQUEST_MAPPING', 'hint', '@RequestMapping with one HTTP method',
+                      'Replace with the matching annotation: @GetMapping, @PostMapping, @PutMapping, @DeleteMapping or @PatchMapping, keeping the path and other attributes.'] END,
+           CASE WHEN d.kind IN ['class', 'object'] AND 'Controller' IN d.annotations AND 'ResponseBody' IN d.annotations
+                THEN ['REST_CONTROLLER_COMBINATION', 'hint', '@Controller with @ResponseBody',
+                      'Replace the two annotations with @RestController.'] END,
+           CASE WHEN d.kind = 'interface' AND 'Repository' IN d.annotations AND d.signature CONTAINS 'Repository<'
+                THEN ['JAVA_REPOSITORY', 'hint', '@Repository on a Spring Data repository interface, where it is not needed',
+                      'Remove @Repository. Spring Data registers interfaces that extend its Repository types by itself.'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND d.language = 'java' AND 'Bean' IN d.annotations AND d.signature STARTS WITH 'public '
+                THEN ['JAVA_PUBLIC_BEAN_METHOD', 'hint', 'public @Bean method',
+                      'Remove the public modifier. @Bean methods do not need to be public.'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND written CONTAINS '@Scheduled' AND written CONTAINS 'cron' AND written CONTAINS '"'
+                     AND NOT split(written, '"')[1] CONTAINS '${' AND NOT split(written, '"')[1] STARTS WITH '@' AND split(written, '"')[1] <> '-'
+                     AND size([x IN split(trim(split(written, '"')[1]), ' ') WHERE x <> '']) <> 6
+                THEN ['CRON_SYNTAX', 'error', 'Cron expression "' + split(written, '"')[1] + '" does not have six fields',
+                      'A Spring cron expression has six space-separated fields: second, minute, hour, day of month, month, day of week. Add the missing seconds field (usually 0 at the front) or remove the extra one.'] END,
+           CASE WHEN d.kind IN ['method', 'function'] AND ANY(a IN d.annotations WHERE a IN ['Async', 'Transactional', 'Cacheable', 'Scheduled']) AND (d.signature STARTS WITH 'private ' OR d.signature CONTAINS ' private fun ')
+                THEN ['PROXIED_ANNOTATION_ON_PRIVATE_METHOD', 'warning', '@' + [a IN d.annotations WHERE a IN ['Async', 'Transactional', 'Cacheable', 'Scheduled']][0] + ' on a private method, where it has no effect',
+                      'The annotation is applied by a proxy, which cannot intercept a private method. Make the method non-private and call it from another bean, or move it to its own bean.'] END
+         ] WHERE f IS NOT NULL] AS findings
+    UNWIND findings AS f
+    RETURN f[0] AS code, f[1] AS severity, f[2] AS found,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN d.name ELSE ownerName END AS class,
+           CASE WHEN d.kind IN ['class', 'object', 'interface'] THEN null ELSE d.name END AS member,
+           f[3] AS fix, d.language AS language, d.path AS path, d.line AS line, d.url AS link
+    ORDER BY CASE f[1] WHEN 'error' THEN 0 WHEN 'warning' THEN 1 ELSE 2 END, code, path, line LIMIT 5000
