@@ -290,3 +290,16 @@
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
     project: "The project as read: the folder, or host/repo@commit."
+
+- name: SpringBuildCall
+  parents: [CallSite]
+  visibility: internal
+  userAnchor: false
+  description: "One call in a project's Kotlin source, build files included: what a Gradle Kotlin DSL build declares (plugins, dependencies) is read from these. Reach it from (:JavaProject {key})-[:BUILD_CALLS]->."
+  virtualJoins:
+    - { anchorLabel: JavaProject, relationship: BUILD_CALLS, keyField: key, recordKeyField: anchorKey, producer: springBuildCalls, maxFanoutTotal: 2000000,
+        description: "(:JavaProject {key:$project})-[:BUILD_CALLS]->(c:SpringBuildCall)" }
+  properties:
+    path: "File path, relative to the project."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."

@@ -3,3 +3,6 @@
 # the JVM, so the JVM languages the kind reads are named; add one here when the kind gains it.
 - { name: springDeclarations, kind: source-tree, emit: declarations, languages: [java, kotlin, scala] }
 - { name: springImports, kind: source-tree, emit: imports, languages: [java, kotlin, scala] }
+
+# A Gradle Kotlin DSL build file is Kotlin: its plugins and dependencies are calls, read like any other.
+- { name: springBuildCalls, kind: source-tree, emit: calls, languages: [kotlin] }
