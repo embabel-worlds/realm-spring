@@ -356,3 +356,16 @@
     uri: "The page it is from."
     title: "The page's title."
     tags: { cardinality: LIST, description: "`spring-docs` for every passage of this index." }
+
+- name: SpringCall
+  parents: [CallSite]
+  visibility: internal
+  userAnchor: false
+  description: "One call in a project's Java, Kotlin or Scala source, matched by name: the method called, what it is called on as written, the member it is in (`enclosing`), file and line. Reach it from (:JavaProject {key})-[:CALLS_SOURCE]->."
+  virtualJoins:
+    - { anchorLabel: JavaProject, relationship: CALLS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springCalls, maxFanoutTotal: 2000000,
+        description: "(:JavaProject {key:$project})-[:CALLS_SOURCE]->(c:SpringCall)" }
+  properties:
+    path: "File path, relative to the project."
+    line: { type: int, description: "Line it is on." }
+    url: "The line on the repository's host, when it has a file view."

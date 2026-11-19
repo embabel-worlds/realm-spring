@@ -6,3 +6,6 @@
 
 # A Gradle Kotlin DSL build file is Kotlin: its plugins and dependencies are calls, read like any other.
 - { name: springBuildCalls, kind: source-tree, emit: calls, languages: [kotlin] }
+
+# Every call in a project's Java, Kotlin and Scala source, by name: what a method does inside a transaction.
+- { name: springCalls, kind: source-tree, emit: calls, languages: [java, kotlin, scala] }

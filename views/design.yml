@@ -43,3 +43,37 @@
            size([o IN handlerOwners WHERE o = controller]) AS endpoints,
            d.language AS language, d.path AS path, d.line AS line, d.url AS link
     ORDER BY controller, repository LIMIT 5000
+
+- name: TransactionalWork
+  description: >-
+    SELECT THIS for "which transactions do the most", "which transactions could be read-only",
+    "what does this transactional method touch". Every method the project's main source runs in a
+    transaction (@Transactional on the method, in Java, Kotlin or Scala), with what it does inside:
+    how many calls it makes that write (save, delete, persist, merge, update, insert, remove,
+    flush, execute), how many that read (find, get, load, query, select, exists, count, fetch),
+    the names called, whether it is declared readOnly, and `couldBeReadOnly`: true when it is not
+    declared readOnly, makes no call that writes and makes at least one that reads. Most calls
+    first. Matched by the name of what is called, inside the method's own body only: a write made
+    by a method it calls is not seen, so couldBeReadOnly is a candidate to check, not a proof, and
+    a method that only delegates shows no operations. @Transactional on a class is not expanded to
+    its methods.
+  params:
+    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
+    WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['method', 'function'] AND 'Transactional' IN d.annotations
+    WITH p, collect({path: d.path, name: d.name, owner: last(split(coalesce(d.owner, ''), '.')), line: d.line, url: d.url, language: d.language,
+                     written: [t IN d.annotationText WHERE t STARTS WITH '@Transactional'][0]}) AS methods
+    MATCH (p)-[:CALLS_SOURCE]->(c:SpringCall)
+    WHERE NOT c.path CONTAINS 'src/test/'
+    WITH methods, collect({path: c.path, enclosing: c.enclosing, method: c.method}) AS calls
+    UNWIND methods AS m
+    WITH m, [c IN calls WHERE c.path = m.path AND c.enclosing = m.name | c.method] AS called
+    WITH m, called,
+         [x IN called WHERE ANY(v IN ['save', 'delete', 'persist', 'merge', 'update', 'insert', 'remove', 'flush', 'execute', 'store', 'create'] WHERE toLower(x) STARTS WITH v)] AS writes,
+         [x IN called WHERE ANY(v IN ['find', 'get', 'load', 'query', 'select', 'exists', 'count', 'fetch', 'read', 'list'] WHERE toLower(x) STARTS WITH v)] AS reads
+    RETURN m.owner AS class, m.name AS method, size(called) AS calls, size(writes) AS writes, size(reads) AS reads,
+           coalesce(m.written, '') CONTAINS 'readOnly' AND replace(coalesce(m.written, ''), ' ', '') CONTAINS 'readOnly=true' AS readOnly,
+           NOT replace(coalesce(m.written, ''), ' ', '') CONTAINS 'readOnly=true' AND size(writes) = 0 AND size(reads) > 0 AS couldBeReadOnly,
+           writes AS writeCalls, reads AS readCalls, m.language AS language, m.path AS path, m.line AS line, m.url AS link
+    ORDER BY calls DESC, class, method LIMIT 5000
