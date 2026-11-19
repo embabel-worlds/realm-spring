@@ -71,6 +71,11 @@
   .langbar{display:flex;height:10px;border-radius:5px;overflow:hidden;margin:10px 0 8px;background:var(--surface2)} .langbar i{display:block;height:100%}
   .langs{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px} .langs .sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
   .langs b{font-weight:600} .langs .m{color:var(--dim)}
+  .sumbox{background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:10px;padding:10px 14px;margin-bottom:12px}
+  .sumbox .k{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px} .sumbox .t{font-size:13.5px;line-height:1.55}
+  .sumbar{margin:0 0 12px} .sumbar .ptop{display:flex;justify-content:space-between;font-size:12.5px;color:var(--dim);margin-bottom:4px} .sumbar .ptop b{color:var(--text)}
+  .sumbar .bar{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden} .sumbar .bar i{display:block;height:100%;background:var(--green)}
+  td.what{max-width:520px;font-size:12.5px;line-height:1.5} .m{color:var(--dim);font-size:12px}
   .minehead{font-size:12px;color:var(--dim);margin:2px 0 6px} .mine{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
   .mine .proj{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 10px;cursor:pointer}
   .mine .proj:hover{border-color:var(--green)} .mine .proj b{font-size:13px} .mine .proj .m{font-size:11.5px;color:var(--dim)}
@@ -425,6 +430,15 @@ ORDER BY property LIMIT 5000</pre></details>
 RETURN c.coordinates AS component, a.advisoryId AS advisory, [y IN x.aliases WHERE y STARTS WITH &#x27;CVE-&#x27;][0] AS cve,
        x.cvss3Score AS cvss, x.title AS title, x.url AS link
 ORDER BY cvss DESC LIMIT 1000</pre></details>
+  <h3>Summaries on the Structure tab</h3>
+  <p>The Structure tab can say what each file, package and module is for, and what the project is. These come from the
+  <b>code-summaries</b> realm, and the appliance writes them with a language model: a file's from what it declares (each
+  declaration's kind, name, signature and doc comment, never the file's whole text), a package's from its files' summaries, a module's
+  from its main source files' summaries, and the project's from its modules'. A summary is written the first time it is asked for
+  and kept by the appliance. It is written again only when what it was made from changes: one changed file rewrites that file's
+  summary and the levels above it, and nothing else. While the commit has not moved, a kept summary is served without reading the
+  code at all. The page asks for at most four at a time and shows how many are written and how long is left at the rate so far.
+  Summaries are a model's reading of signatures and doc comments; they can be wrong about behaviour the signatures do not show.</p>
   <h3>What an empty panel means</h3>
   <p>An empty finding list means the rule ran and found nothing — but only over what could be read. A project with no root pom.xml (a Gradle
   build) has no build to resolve, so the Spring Boot version, dependencies, configuration checks and upgrade path stay empty; its code findings
@@ -465,7 +479,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
   var CATEGORY = { 'upgrade-blocker': 'Upgrade blockers', 'vulnerability': 'Vulnerabilities', 'configuration': 'Configuration',
                    'dependencies': 'Dependencies', 'design': 'Design', 'testing': 'Testing', 'modernize': 'Modernize', 'support': 'Support' };
   var state = { project: null, stack: null, lines: [], findings: [], triage: {}, beans: null, profiles: null, target: null,
-                upgrade: null, tab: 'inbox', filter: null, showDecided: false, mine: null, modules: null, languages: null, nav: { level: 'modules' }, loading: {} };
+                upgrade: null, tab: 'inbox', filter: null, showDecided: false, mine: null, modules: null, languages: null, sumRuns: {}, sumStarted: {}, nav: { level: 'modules' }, loading: {} };
 
   function esc(v) { return v == null ? '' : String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
   function rowsOf(r) {
@@ -567,6 +581,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     state = Object.assign(state, { saved: false, modules: again ? state.modules : null, languages: again ? state.languages : null,
                                    nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     state.pendingNav = null;
+    if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; }
     if (!again) Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });
     state.project = key; writeHash();
     drawMine();
@@ -960,37 +975,177 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     if (n.level === 'files') out.push('<b>' + esc(n.pkg || '(default package)') + '</b> <span>' + esc(n.set) + '</span>');
     return '<div class="crumbs">' + out.join('<span>›</span>') + '</div>';
   }
+  /* ── summaries: what each file, package, module and the project is for ──
+   *
+   * Written by the appliance the first time one is asked for and kept until the code beneath it
+   * changes, so only the first visit costs anything. A file's is made from its declarations; a
+   * package's from its files'; a module's from its main files'; the project's from its modules'.
+   * The page asks for files first, a few at a time, so there is a count to show while they are
+   * written, and asks for the level above once what it is made of is there.
+   */
+  var SUM = {}, sumQueue = [], sumActive = 0, SUM_PARALLEL = 4, sumTimer = null, sumOff = false;
+  var CODE_EXT = { java: 1, kt: 1, kts: 1, scala: 1, groovy: 1, ts: 1, tsx: 1, js: 1, py: 1, go: 1, rs: 1, cs: 1, rb: 1, php: 1, swift: 1, c: 1, cpp: 1 };
+  function sumKey(kind, id) { return state.project + '\u0000' + kind + '\u0000' + id; }
+  function sumOf(kind, id) { return SUM[sumKey(kind, id)]; }
+  function settled(e) { return e && (e.state === 'done' || e.state === 'none' || e.state === 'error'); }
+  function sumRedraw() { if (!sumTimer) sumTimer = setTimeout(function () { sumTimer = null; if (state.tab === 'structure') render(); }, 250); }
+  /* Ask for one summary. Queued, at most SUM_PARALLEL at a time; `front` jumps the queue. Asked twice, it is asked once. */
+  function sumAsk(kind, id, name, params, front) {
+    var k = sumKey(kind, id), e = SUM[k];
+    if (e && e.state !== 'error') return e.promise;
+    e = SUM[k] = { state: 'wait', start: null, project: state.project };
+    e.promise = new Promise(function (resolve) {
+      var job = function () {
+        if (e.project !== state.project) { resolve(e); return; }
+        e.state = 'run'; e.start = Date.now(); sumActive++; sumRedraw();
+        view(name, params).then(function (rows) {
+          var r = rows[0]; e.state = r && r.summary ? 'done' : 'none'; e.text = r && r.summary; e.at = r && r.generatedAt;
+        }).catch(function (err) {
+          e.state = 'error'; e.text = reason(err);
+          if (/unknown view|no view|not found/i.test(String(err && err.message))) sumOff = true;
+        }).then(function () { e.secs = (Date.now() - e.start) / 1000; sumActive--; sumPump(); sumRedraw(); resolve(e); });
+      };
+      if (front) sumQueue.unshift(job); else sumQueue.push(job);
+      sumPump();
+    });
+    return e.promise;
+  }
+  function sumPump() { while (sumActive < SUM_PARALLEL && sumQueue.length) sumQueue.shift()(); }
+  function sumCell(e, idle) {
+    if (!e) return idle || '<span class="m">—</span>';
+    if (e.state === 'done') return esc(e.text);
+    if (e.state === 'run') return '<span class="m"><span class="spin">●</span>writing… ' + Math.round((Date.now() - e.start) / 1000) + ' s</span>';
+    if (e.state === 'wait') return '<span class="m">queued</span>';
+    if (e.state === 'none') return '<span class="m">nothing to summarize: it declares nothing</span>';
+    return '<span class="note warn" style="padding:0">' + esc(e.text) + '</span>';
+  }
+  /* How far a batch has got, and how long is left at the rate so far. */
+  function sumProgress(entries, noun, started) {
+    var total = entries.length, done = entries.filter(settled).length, failed = entries.filter(function (e) { return e && e.state === 'error'; }).length;
+    if (!total) return '';
+    var secs = started ? (Date.now() - started) / 1000 : 0, left = done && done < total ? Math.round(secs / done * (total - done)) : 0;
+    var eta = left > 90 ? 'about ' + Math.round(left / 60) + ' min left' : left ? 'about ' + left + ' s left' : '';
+    return '<div class="sumbar"><div class="ptop"><b>' + (done < total ? 'Writing summaries: ' : 'Summaries: ') + num(done) + ' of ' + num(total) + ' ' + noun + '</b><span>' +
+      (done < total ? eta : failed ? failed + ' could not be written' : 'kept by the appliance until the code changes') + '</span></div>' +
+      '<div class="bar"><i style="width:' + Math.round(100 * done / total) + '%"></i></div></div>';
+  }
+  function sumBox(title, e, action) {
+    var body = e ? sumCell(e) : action;
+    return '<div class="sumbox"><div class="k">' + esc(title) + '</div><div class="t">' + body + '</div></div>';
+  }
+  function pkgId(module, set, pkg) { return module + '\u0001' + set + '\u0001' + pkg; }
+  /* The files of a package, then their summaries, then the package's. Resolves when the package's is settled. */
+  function ensurePackage(module, set, pkg) {
+    var fk = 'fl:' + module + ':' + set + ':' + pkg, key = state.project;
+    var files = state[fk] ? Promise.resolve(state[fk]) : view('PackageFiles', { project: key, module: module, package: pkg, sourceSet: set }).then(function (rows) { if (key === state.project) state[fk] = rows; return rows; });
+    return files.then(function (rows) {
+      var code = rows.filter(function (r) { return CODE_EXT[r.language]; });
+      return Promise.all(code.map(function (r) { return sumAsk('file', r.path, 'FileSummary', { project: key, path: r.path }); }));
+    }).then(function () {
+      return sumAsk('package', pkgId(module, set, pkg), 'PackageSummary', { project: key, module: module, package: pkg, sourceSet: set }, true);
+    });
+  }
+  /* A module: its main packages one after another, then the module's own summary. */
+  function ensureModule(module) {
+    var key = state.project, pk = 'pk:' + module, run = state.sumRuns[module] = state.sumRuns[module] || { start: Date.now(), done: 0, total: 0, files: 0, filesDone: 0, phase: 'packages' };
+    if (run.promise) return run.promise;
+    var packages = state[pk] ? Promise.resolve(state[pk]) : view('ModulePackages', { project: key, module: module }).then(function (rows) { if (key === state.project) state[pk] = rows; return rows; });
+    run.promise = packages.then(function (rows) {
+      var main = rows.filter(function (r) { return r.sourceSet === 'main'; });
+      run.total = main.length; run.files = main.reduce(function (n, r) { return n + (Number(r.files) || 0); }, 0);
+      return main.reduce(function (chain, r) {
+        return chain.then(function () { return ensurePackage(module, 'main', r.package || ''); }).then(function () { run.done++; run.filesDone += Number(r.files) || 0; sumRedraw(); });
+      }, Promise.resolve());
+    }).then(function () {
+      run.phase = 'module'; sumRedraw();
+      return sumAsk('module', module, 'ModuleSummary', { project: key, module: module }, true);
+    }).then(function (e) { run.phase = 'done'; sumRedraw(); return e; });
+    return run.promise;
+  }
+  function moduleRunLine(module) {
+    var run = state.sumRuns[module]; if (!run || run.phase === 'done') return '';
+    if (run.phase === 'module') return '<span class="m"><span class="spin">●</span>writing the module’s summary from ' + num(run.files) + ' files…</span>';
+    var secs = (Date.now() - run.start) / 1000, left = run.filesDone ? Math.round(secs / run.filesDone * (run.files - run.filesDone)) : 0;
+    return '<span class="m"><span class="spin">●</span>' + num(run.filesDone) + ' of ' + num(run.files) + ' files, package ' + Math.min(run.done + 1, run.total) + ' of ' + run.total +
+      (left > 90 ? ' — about ' + Math.round(left / 60) + ' min left' : left ? ' — about ' + left + ' s left' : '') + '</span>';
+  }
+  /* The whole project: every module with main source, one after another, then the project's own. */
+  function ensureProject() {
+    var key = state.project, run = state.sumRuns['\u0002project'] = state.sumRuns['\u0002project'] || { start: Date.now(), done: 0, total: 0, phase: 'modules' };
+    if (run.promise) return run.promise;
+    var ms = (state.modules || []).filter(function (m) { return (m.mainFiles || 0) > 0; });
+    run.total = ms.length;
+    run.promise = ms.reduce(function (chain, m) {
+      return chain.then(function () { run.current = m.module || ''; sumRedraw(); return ensureModule(m.module || ''); }).then(function () { run.done++; sumRedraw(); });
+    }, Promise.resolve()).then(function () {
+      run.phase = 'project'; sumRedraw();
+      return sumAsk('project', '', 'ProjectSummary', { project: key }, true);
+    }).then(function (e) { run.phase = 'done'; sumRedraw(); return e; });
+    return run.promise;
+  }
+
   function renderStructure() {
     var n = state.nav, body;
     if (n.level === 'modules') {
       if (!state.modules) { waiting('modules', 'Modules', 'Reading the Maven modules and counting their source files', function () { return view('ModuleSources', { project: state.project }); }); return; }
-      var ms = state.modules;
-      body = '<div class="sub" style="margin-bottom:10px">' + ms.length + ' Maven module(s). Source files are counted under <span class="mono">src/main</span> and <span class="mono">src/test</span>.</div>' +
-        '<table class="nav"><tr><th>Module</th><th>Coordinates</th><th>Packaging</th><th>Main files</th><th>Test files</th><th>Languages</th></tr>' + ms.map(function (m, i) {
-          var has = (m.mainFiles || 0) + (m.testFiles || 0) > 0;
-          return '<tr class="' + (has ? 'go' : '') + '" data-module="' + i + '"><td><b>' + esc(m.module || '(root)') + '</b></td><td class="mono">' + esc(m.coordinates) + '</td><td>' + esc(m.packaging) +
+      var ms = state.modules, withMain = ms.filter(function (m) { return (m.mainFiles || 0) > 0; }), allFiles = withMain.reduce(function (t, m) { return t + (m.mainFiles || 0); }, 0);
+      var prun = state.sumRuns['\u0002project'], pe = sumOf('project', '');
+      var paction = prun && prun.phase !== 'done'
+        ? '<span class="m"><span class="spin">●</span>' + (prun.phase === 'project' ? 'writing the project’s summary from ' + prun.total + ' modules…'
+            : 'module ' + Math.min(prun.done + 1, prun.total) + ' of ' + prun.total + ' (' + esc(prun.current || '(root)') + ') — ' + (moduleRunLine(prun.current || '').replace(/<[^>]+>/g, '').replace('●', '') || 'starting') ) + '</span>'
+        : '<button type="button" class="primary" data-sum="project">Summarize the project</button> <span class="m">Writes a summary for each of ' + num(allFiles) + ' main source files in ' + withMain.length +
+          ' module(s) that does not have one yet, then each package, module and the project. Each is written once and kept; you can leave and come back.</span>';
+      body = (sumOff ? '' : sumBox('What this project is', pe && pe.state !== 'wait' ? pe : null, paction)) +
+        '<div class="sub" style="margin-bottom:10px">' + ms.length + ' Maven module(s). Source files are counted under <span class="mono">src/main</span> and <span class="mono">src/test</span>.</div>' +
+        '<table class="nav"><tr><th>Module</th><th>What it is for</th><th>Packaging</th><th>Main files</th><th>Test files</th><th>Languages</th></tr>' + ms.map(function (m, i) {
+          var has = (m.mainFiles || 0) + (m.testFiles || 0) > 0, me = sumOf('module', m.module || ''), line = moduleRunLine(m.module || '');
+          var what = sumOff || !(m.mainFiles > 0) ? '<span class="m">—</span>' : me && me.state !== 'wait' ? sumCell(me) : line ||
+            '<button type="button" data-sum="module" data-i="' + i + '">Summarize</button>';
+          return '<tr class="' + (has ? 'go' : '') + '" data-module="' + i + '"><td><b>' + esc(m.module || '(root)') + '</b><div class="m mono">' + esc(m.coordinates) + '</div></td><td class="what">' + what + '</td><td>' + esc(m.packaging) +
             '</td><td>' + esc(m.mainFiles) + '</td><td>' + esc(m.testFiles) + '</td><td>' + esc((m.languages || []).join(', ')) + '</td></tr>';
         }).join('') + '</table>';
     } else if (n.level === 'packages') {
       var pk = 'pk:' + n.module;
       if (!state[pk]) { waiting(pk, 'Packages', 'Reading the packages of ' + (n.module || 'the root module'), function () { return view('ModulePackages', { project: state.project, module: n.module }); }); return; }
-      var rows = state[pk];
-      body = '<div class="sub" style="margin-bottom:10px">' + rows.length + ' package(s) in this module, main and test listed separately.</div>' +
-        (rows.length ? '<table class="nav"><tr><th>Package</th><th>Source set</th><th>Files</th><th>Languages</th></tr>' + rows.map(function (r, i) {
-          return '<tr class="go" data-pkg="' + i + '"><td class="mono">' + esc(r.package || '(default package)') + '</td><td>' + esc(r.sourceSet) + '</td><td>' + esc(r.files) + '</td><td>' + esc((r.languages || []).join(', ')) + '</td></tr>';
+      var rows = state[pk], mainFiles = rows.filter(function (r) { return r.sourceSet === 'main'; }).reduce(function (t, r) { return t + (Number(r.files) || 0); }, 0);
+      var me2 = sumOf('module', n.module), line2 = moduleRunLine(n.module);
+      var maction = line2 || '<button type="button" class="primary" data-sum="module" data-module-name="' + esc(n.module) + '">Summarize this module</button> <span class="m">Writes a summary for each of its ' +
+        num(mainFiles) + ' main source files that does not have one yet, then each package and the module. Each is written once and kept.</span>';
+      body = (sumOff ? '' : sumBox('What this module is for', me2 && me2.state !== 'wait' ? me2 : null, maction)) +
+        '<div class="sub" style="margin-bottom:10px">' + rows.length + ' package(s) in this module, main and test listed separately.</div>' +
+        (rows.length ? '<table class="nav"><tr><th>Package</th><th>What it is for</th><th>Source set</th><th>Files</th><th>Languages</th></tr>' + rows.map(function (r, i) {
+          var pe2 = sumOf('package', pkgId(n.module, r.sourceSet, r.package || ''));
+          var what = sumOff ? '<span class="m">—</span>' : pe2 ? sumCell(pe2) : '<button type="button" data-sum="package" data-i="' + i + '">Summarize</button>';
+          return '<tr class="go" data-pkg="' + i + '"><td class="mono">' + esc(r.package || '(default package)') + '</td><td class="what">' + what + '</td><td>' + esc(r.sourceSet) + '</td><td>' + esc(r.files) + '</td><td>' + esc((r.languages || []).join(', ')) + '</td></tr>';
         }).join('') + '</table>' : '<div class="empty">No source files under src/ in this module.</div>');
     } else {
       var fk = 'fl:' + n.module + ':' + n.set + ':' + n.pkg;
       if (!state[fk]) { waiting(fk, 'Files', 'Reading the files of ' + (n.pkg || 'the default package'), function () { return view('PackageFiles', { project: state.project, module: n.module, package: n.pkg, sourceSet: n.set }); }); return; }
-      var fs = state[fk];
-      body = '<div class="sub" style="margin-bottom:10px">' + fs.length + ' file(s).</div>' + table(fs, [
+      var fs = state[fk], code = fs.filter(function (r) { return CODE_EXT[r.language]; });
+      /* Opening a package asks for its summaries: the files', a few at a time, then its own. */
+      if (!sumOff && !state.sumStarted[fk]) { state.sumStarted[fk] = Date.now(); ensurePackage(n.module, n.set, n.pkg); }
+      var entries = code.map(function (r) { return sumOf('file', r.path); }), pe3 = sumOf('package', pkgId(n.module, n.set, n.pkg));
+      body = (sumOff ? '' : sumBox('What this package is for', pe3 && pe3.state !== 'wait' ? pe3 : null,
+               '<span class="m">' + (entries.every(settled) ? 'writing…' : 'Written once its files’ summaries are: ' + entries.filter(settled).length + ' of ' + entries.length + ' so far.') + '</span>') +
+             sumProgress(entries, 'files', state.sumStarted[fk])) +
+        '<div class="sub" style="margin-bottom:10px">' + fs.length + ' file(s).</div>' + table(fs, [
         ['file', 'File', function (r) { return r.link ? '<a class="mono" target="_blank" rel="noopener" href="' + esc(r.link) + '">' + esc(r.file) + '</a>' : '<span class="mono">' + esc(r.file) + '</span>'; }],
-        ['language', 'Language'], ['path', 'Path', function (r) { return '<span class="mono">' + esc(r.path) + '</span>'; }]]);
+        ['summary', 'What it is for', function (r) { return sumOff || !CODE_EXT[r.language] ? '<span class="m">—</span>' : sumCell(sumOf('file', r.path), '<span class="m">queued</span>'); }],
+        ['language', 'Language']]);
     }
     $('panel').innerHTML = crumbs() + body;
   }
+  setInterval(function () { if (state.tab === 'structure' && (sumActive > 0 || sumQueue.length)) sumRedraw(); }, 1000);
   $('panel').addEventListener('click', function (e) {
     if (state.tab !== 'structure') return;
+    var sb = e.target.closest('button[data-sum]');
+    if (sb) {
+      e.stopPropagation();
+      if (sb.dataset.sum === 'project') ensureProject();
+      else if (sb.dataset.sum === 'module') ensureModule(sb.dataset.moduleName != null ? sb.dataset.moduleName : (state.modules[Number(sb.dataset.i)].module || ''));
+      else { var pr = state['pk:' + state.nav.module][Number(sb.dataset.i)]; ensurePackage(state.nav.module, pr.sourceSet, pr.package || ''); }
+      sumRedraw(); return;
+    }
     var a = e.target.closest('[data-nav]'), m = e.target.closest('tr[data-module]'), p = e.target.closest('tr[data-pkg]');
     if (a) return go(a.dataset.nav === 'modules' ? { level: 'modules' } : { level: 'packages', module: state.nav.module });
     if (m && m.classList.contains('go')) return go({ level: 'packages', module: state.modules[Number(m.dataset.module)].module || '' });

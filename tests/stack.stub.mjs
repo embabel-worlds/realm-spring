@@ -64,13 +64,18 @@ const FIX = {
     { extension: 'kt', files: 60, mainFiles: 45, testFiles: 15, modules: 2 }, { extension: 'java', files: 30, mainFiles: 24, testFiles: 6, modules: 2 },
     { extension: 'ts', files: 10, mainFiles: 0, testFiles: 0, modules: 1 }, { extension: 'yml', files: 12, mainFiles: 4, testFiles: 2, modules: 3 },
     { extension: 'zzz', files: 99, mainFiles: 0, testFiles: 0, modules: 1 }],
+  FileSummary: { 'shop-web/src/main/kotlin/com/acme/shop/web/cart/Cart.kt': 'Holds the items of one shopping cart.',
+                 'shop-web/src/main/kotlin/com/acme/shop/web/cart/CartController.kt': 'Serves the cart over HTTP.' },
+  PackageSummary: [{ summary: 'The shopping cart: its contents and its HTTP endpoints.', files: 2, generatedAt: '2026-11-19T04:00:00Z' }],
+  ModuleSummary: [{ module: 'shop-web', summary: 'The web layer of the shop.', files: 25, generatedAt: '2026-11-19T04:00:00Z' }],
+  ProjectSummary: [{ summary: 'An online shop in three modules.', modules: 3, generatedAt: '2026-11-19T04:00:00Z' }],
   Beans: [{ bean: 'ApiConfig#clock', declaredBy: '@Bean method', profiles: [], conditions: [], language: 'java', module: 'shop-api', file: 'shop-api/src/main/java/ApiConfig.java', line: 9, link: null },
           { bean: 'CartController', declaredBy: '@RestController', profiles: [], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartController.kt', line: 12, link: null },
           { bean: 'CartService', declaredBy: '@Service', profiles: ['prod'], conditions: [], language: 'kotlin', module: 'shop-web', file: 'shop-web/src/main/kotlin/CartService.kt', line: 8, link: null }],
   Profiles: [{ profile: 'dev', where: 'file', what: 'application-dev.yml', file: 'shop-web/src/main/resources/application-dev.yml', line: 1, link: null }],
 };
 
-/* mode: ok | configFails | slowBeans | behind (project on 4.0.3) | mine (one project already kept) */
+/* mode: slowSum (file summaries take 1.5 s) | ok | configFails | slowBeans | behind (project on 4.0.3) | mine (one project already kept) */
 const stub = (mode) => `
   window.__calls = []; window.__writes = [];
   const FIX = ${JSON.stringify(FIX)}; const MODE = ${JSON.stringify(mode)};
@@ -82,6 +87,7 @@ const stub = (mode) => `
     if (name === 'StackCard' && MODE === 'behind') return [Object.assign({}, FIX.StackCard[0], { bootVersion: '4.0.3', bootLine: '4.0.x', latestPatch: '4.0.9' })];
     if (name === 'MyProjects' && MODE === 'mine') return [{ key: 'https://github.com/acme/billing', name: 'acme/billing', bootVersion: '3.5.9', support: 'supported', read: 'github.com/acme/billing@abc', modules: 2, analysedAt: new Date(Date.now() - 7200000).toISOString(), failed: 0 }];
     if (name === 'Beans' && MODE === 'slowBeans') await wait(2500);
+    if (name === 'FileSummary') { if (MODE === 'slowSum') await wait(1500); const t = FIX.FileSummary[args.path]; return t ? [{ path: args.path, summary: t, declarations: 4, generatedAt: '2026-11-19T04:00:00Z' }] : []; }
     if (!FIX[name]) throw new Error('no fixture for ' + name);
     return FIX[name];
   } } };
@@ -173,14 +179,33 @@ try {
   ok((await text(page, '#panel')).includes('2 file(s)') && (await text(page, '#panel')).includes('CartController.kt'), 'the package opens to its two files');
   ok((await page.evaluate(() => window.__calls)).some((c) => c.startsWith('PackageFiles:') && c.includes('"package":"com.acme.shop.web.cart"') && c.includes('"sourceSet":"main"')), 'asked for that package and source set');
   ok(await page.locator('#panel a[href*="Cart.kt"]').count() === 1, 'a file with a link on the host is linked; one without is plain text');
+  await page.waitForFunction(() => document.querySelector('#panel .sumbox .t')?.textContent.includes('The shopping cart'));
+  const filesPanel = await text(page, '#panel');
+  ok(filesPanel.includes('Holds the items of one shopping cart.') && filesPanel.includes('Serves the cart over HTTP.'), 'each file shows what it is for');
+  ok(filesPanel.includes('Summaries: 2 of 2 files'), 'the count of summaries written is the fixture\'s two files');
+  ok(filesPanel.includes('The shopping cart: its contents and its HTTP endpoints.'), 'and the package\'s summary heads the list');
+  const sumCalls = (await page.evaluate(() => window.__calls)).filter((c) => /^(File|Package)Summary:/.test(c));
+  ok(sumCalls.filter((c) => c.startsWith('FileSummary:')).length === 2 && sumCalls.filter((c) => c.startsWith('PackageSummary:')).length === 1 && sumCalls[sumCalls.length - 1].startsWith('PackageSummary:'),
+     'two file summaries were asked for, then the package\'s once they were there');
   ok((await text(page, '#panel .crumbs')).includes('acme/shop at commit 1915b70') && (await text(page, '#panel .crumbs')).includes('shop-web') && (await text(page, '#panel .crumbs')).includes('com.acme.shop.web.cart'), 'the trail shows project, module and package');
   ok(page.url().includes('module=shop-web') && page.url().includes('pkg=com.acme.shop.web.cart') && page.url().includes('tab=structure'), 'and the address holds where you are');
   await page.reload(); await page.waitForSelector('#panel table a.mono');
   ok((await text(page, '#panel')).includes('CartController.kt'), 'a reload opens the same package again');
   await page.click('#panel .crumbs [data-nav="packages"]');
   ok(await page.locator('#panel tr[data-pkg]').count() === 3, 'the trail goes back to the module');
+  ok((await text(page, '#panel tr[data-pkg="1"]')).includes('The shopping cart: its contents'), 'the package just opened shows its summary in the list; the others offer to write theirs');
+  ok(await page.locator('#panel tr[data-pkg="0"] button[data-sum="package"]').count() === 1, 'a package not yet summarized has a button, and clicking it does not open the package');
+  await page.click('#panel .sumbox button[data-sum="module"]');
+  await page.waitForFunction(() => document.querySelector('#panel .sumbox .t')?.textContent.includes('The web layer of the shop.'));
+  ok(await page.locator('#panel tr[data-pkg]').count() === 3, 'summarizing the module stays on the module');
+  ok((await page.evaluate(() => window.__calls)).filter((c) => c.startsWith('ModuleSummary:')).length === 1, 'the module\'s summary was asked for once, after its packages');
   await page.click('#panel .crumbs [data-nav="modules"]');
   ok(await page.locator('#panel tr[data-module]').count() === 4, 'and back to the project');
+  ok((await text(page, '#panel tr[data-module="1"]')).includes('The web layer of the shop.'), 'the module summarized shows its summary in the project\'s list');
+  ok(await page.locator('#panel tr[data-module="3"] button[data-sum]').count() === 0, 'a module with no main source offers no summary');
+  await page.click('#panel .sumbox button[data-sum="project"]');
+  await page.waitForFunction(() => document.querySelector('#panel .sumbox .t')?.textContent.includes('An online shop in three modules.'));
+  ok(await page.locator('#panel tr[data-module] button[data-sum="module"]').count() === 0, 'summarizing the project summarizes every module with main source first');
   ok(await page.locator('#embabel-badge').isVisible() && (await text(page, '#embabel-badge')).trim().length > 0, 'the badge is visible and not empty');
   ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
   await page.close();
@@ -218,6 +243,18 @@ try {
   await page.waitForSelector('#panel table', { timeout: 6000 });
   ok((await text(page, '#panel')).includes('3 beans declared in main source (2 in Kotlin, 1 in Java)') && (await text(page, '#panel')).includes('CartService'), 'the beans arrive, counted by language as the fixture has them: 2 Kotlin, 1 Java');
   ok(!(await text(page, '#panel')).includes('Incomplete'), 'with no warning, since beans are read from Kotlin too');
+  ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
+  await page.close();
+
+  console.log('summaries being written');
+  ({ page, errors } = await open(browser, 'slowSum', '#project=' + encodeURIComponent(PROJECT) + '&tab=structure&module=shop-web&pkg=com.acme.shop.web.cart&set=main'));
+  await page.waitForSelector('#panel .sumbar');
+  const writing = await text(page, '#panel');
+  ok(writing.includes('Writing summaries: 0 of 2 files') && /writing… \d+ s/.test(writing), 'while they are written the panel counts them and each row says it is being written: ' + writing.replace(/\s+/g, ' ').slice(0, 80));
+  await page.click('#panel .crumbs [data-nav="packages"]');   /* a click while summaries are in flight */
+  ok(await page.locator('#panel tr[data-pkg]').count() === 3, 'navigating away while they are written works');
+  await page.waitForFunction(() => document.querySelector('#panel tr[data-pkg="1"]')?.textContent.includes('The shopping cart'), null, { timeout: 8000 });
+  ok(true, 'and the package\'s summary arrives in the list it was left for');
   ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
   await page.close();
 
