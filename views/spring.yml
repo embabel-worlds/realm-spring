@@ -59,55 +59,79 @@
     against what the project's own Spring Boot jars document. Keys under the project's own
     @ConfigurationProperties prefixes, or read as ${key} by any annotation (@Value, @Scheduled's
     cron, a @FeignClient's url), are the project's and are not flagged.
-    Downloads the project's Spring Boot jars the first time.
+    Also: a value that is not what the property's documented type takes (a boolean, whole number, duration or size), which stops the application starting. A value holding a ${placeholder} is not checked. Downloads the project's Spring Boot jars the first time.
   params:
     project: { type: string, description: "Project key." }
   cypher: |
-    MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
-    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
-       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
-    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
-    WITH p, collect(bp) AS props
-    WITH p, props,
-         [x IN props WHERE x.type STARTS WITH 'java.util.Map' OR x.type STARTS WITH 'java.util.List' | toLower(replace(replace(x.name, '-', ''), '_', ''))] AS open
+    /* Short lists first, the long list of documented properties after them, and the settings gone through last, one row each, never gathered. */
+    // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
+    MATCH (p:JavaProject {key: $project})
+    OPTIONAL MATCH (p)-[:HAS_SETTING]->(r:ProjectSetting)
+    WHERE r.path CONTAINS 'src/main/resources' AND coalesce(r.value, '') CONTAINS '${'
+    WITH p, collect(r.value) AS reading
     OPTIONAL MATCH (p)-[:HAS_ANNOTATION]->(cp:JavaProjectAnnotation)
     WHERE cp.name = 'ConfigurationProperties' OR coalesce(cp.value, '') CONTAINS '${' OR ANY(x IN coalesce(cp.attributes, []) WHERE x CONTAINS '${')
-    WITH p, props, open,
+    WITH p, reading,
          collect(DISTINCT CASE WHEN cp.name = 'ConfigurationProperties'
                    THEN coalesce([x IN cp.attributes WHERE x STARTS WITH 'prefix=' | substring(x, 7)][0], cp.value) END) AS ownPrefixes,
          /* Every ${key} any annotation reads: @Value, and @Scheduled(cron = "${jobs.cron}"), @FeignClient(url = "${rates.url}") and the rest. */
-         reduce(acc = [], text IN collect(CASE WHEN cp.name <> 'ConfigurationProperties' THEN coalesce(cp.value, '') + reduce(t = '', x IN coalesce(cp.attributes, []) | t + ' ' + x) END)
-                | acc + [k IN split(text, '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
+         collect(CASE WHEN cp.name <> 'ConfigurationProperties' THEN coalesce(cp.value, '') + reduce(t = '', x IN coalesce(cp.attributes, []) | t + ' ' + x) END) AS annotated
+    /* The project's own prefixes and keys in their relaxed form, made once. */
+    WITH p, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
+         [x IN reduce(acc = [], text IN annotated + reading | acc + [k IN split(text, '${')[1..] | split(split(k, '}')[0], ':')[0]]) | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys
+    MATCH (p)-[:HAS_JAR]->(j:ProjectJar)
+    WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
+       OR j.artifactId CONTAINS 'starter' OR j.artifactId CONTAINS 'autoconfigure')
+    MATCH (j)-[:DOCUMENTS]->(bp:BootProperty)
+    /* A multi-module project meets the same jar, and so the same property, once per module: one of each is enough. */
+    WITH p, ownPrefixes, valueKeys, bp.name AS documented, collect(bp)[0] AS bp
+    WITH p, ownPrefixes, valueKeys, collect(bp) AS props
+    /* Each documented name in its relaxed form, made once: made inside the comparison below it would be made again for every setting. */
+    WITH p, ownPrefixes, valueKeys, [x IN props | [toLower(replace(replace(x.name, '-', ''), '_', '')), x]] AS props
+    WITH p, ownPrefixes, valueKeys, props,
+         [x IN props WHERE x[1].type STARTS WITH 'java.util.Map' OR x[1].type STARTS WITH 'java.util.List' | x[0] + '.'] AS open
     MATCH (p)-[:HAS_SETTING]->(s:ProjectSetting)
     WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
       AND NOT s.fileName STARTS WITH 'messages' AND NOT s.fileName STARTS WITH 'logback' AND NOT s.fileName STARTS WITH 'log4j'
-      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages'
+      AND NOT s.fileName STARTS WITH 'git.' AND NOT s.fileName STARTS WITH 'ValidationMessages' AND NOT s.fileName STARTS WITH '.'
       AND NOT s.name IN ['spring.config.activate.on-profile', 'spring.profiles']
-    WITH p, props, open, ownPrefixes, valueKeys, collect(s) AS settings
-    // A key another setting reads as ${key} (`classpath:db/${database}/schema.sql`) is in use.
-    WITH props, open, ownPrefixes, settings,
-         valueKeys + reduce(acc = [], x IN settings | acc + [k IN split(coalesce(x.value, ''), '${')[1..] | split(split(k, '}')[0], ':')[0]]) AS valueKeys
-    UNWIND settings AS s
-    WITH s, props, open, [x IN ownPrefixes WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS ownPrefixes,
-         [x IN valueKeys WHERE x IS NOT NULL | toLower(replace(replace(x, '-', ''), '_', ''))] AS valueKeys,
-         toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
-    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE toLower(replace(replace(x.name, '-', ''), '_', '')) = base][0] AS match
+    WITH s, props, open, ownPrefixes, valueKeys, toLower(replace(replace(split(s.name, '[')[0], '-', ''), '_', '')) AS base
+    WITH s, base, ownPrefixes, valueKeys, open, [x IN props WHERE x[0] = base | x[1]][0] AS match
     WHERE NOT ANY(x IN ownPrefixes WHERE base STARTS WITH x + '.' OR base = x)
       AND NOT ANY(x IN valueKeys WHERE base = x)
-      AND NOT ANY(x IN open WHERE base STARTS WITH x + '.')
-      AND (match IS NULL OR match.deprecated)
+      AND NOT ANY(x IN open WHERE base STARTS WITH x)
+    WITH s, base, match, trim(coalesce(s.value, '')) AS v
+    /* What the value must be, when the property's documented type says and the value as written is not one; a ${placeholder} or a build token is settled elsewhere. */
+    WITH s, base, match, v,
+         CASE WHEN match IS NULL OR v = '' OR v CONTAINS '${' OR v CONTAINS '#{' OR v STARTS WITH '@' THEN null
+              WHEN match.type IN ['java.lang.Boolean', 'boolean'] AND NOT toLower(v) IN ['true', 'false', 'on', 'off', 'yes', 'no']
+                THEN 'true or false'
+              WHEN match.type IN ['java.lang.Integer', 'int', 'java.lang.Long', 'long', 'java.lang.Short', 'short'] AND (toInteger(v) IS NULL OR toString(toInteger(v)) <> v)
+                THEN 'a whole number'
+              WHEN match.type = 'java.time.Duration' AND NOT ((toInteger(v) IS NOT NULL AND toString(toInteger(v)) = v) OR toUpper(v) STARTS WITH 'P' OR toUpper(v) STARTS WITH '-P' OR toUpper(v) STARTS WITH '+P'
+                     OR ANY(u IN ['ns', 'us', 'ms', 's', 'm', 'h', 'd'] WHERE toLower(v) ENDS WITH u AND toInteger(left(v, size(v) - size(u))) IS NOT NULL AND toString(toInteger(left(v, size(v) - size(u)))) = left(v, size(v) - size(u))))
+                THEN 'a duration: a number with ns, us, ms, s, m, h or d (30s, 5m), or ISO-8601 (PT30S)'
+              WHEN match.type = 'org.springframework.util.unit.DataSize' AND NOT ((toInteger(v) IS NOT NULL AND toString(toInteger(v)) = v)
+                     OR ANY(u IN ['b', 'kb', 'mb', 'gb', 'tb'] WHERE toLower(v) ENDS WITH u AND toInteger(left(v, size(v) - size(u))) IS NOT NULL AND toString(toInteger(left(v, size(v) - size(u)))) = left(v, size(v) - size(u))))
+                THEN 'a size: a number with B, KB, MB, GB or TB (10MB)'
+              END AS expected
+    WHERE match IS NULL OR match.deprecated OR expected IS NOT NULL
     RETURN 'config:' + s.path + ':' + toString(s.line) + ':' + s.name AS id,
-           CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'medium'
+           CASE WHEN expected IS NOT NULL THEN 'high'
+                WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'medium'
                 WHEN match IS NULL THEN 'low' WHEN match.deprecationLevel = 'error' THEN 'high' ELSE 'low' END AS severity,
            'configuration' AS category,
-           CASE WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'Spring Boot binds no property ' + s.name
+           CASE WHEN expected IS NOT NULL THEN s.name + ' is "' + left(v, 60) + '", which is not ' + split(expected, ':')[0]
+                WHEN match IS NULL AND split(base, '.')[0] IN ['spring', 'server', 'management', 'logging', 'info', 'debug', 'trace'] THEN 'Spring Boot binds no property ' + s.name
                 WHEN match IS NULL THEN 'Undocumented setting ' + s.name
                 WHEN match.deprecationLevel = 'error' THEN s.name + ' no longer binds'
                 ELSE s.name + ' is deprecated' END AS title,
-           CASE WHEN match IS NULL THEN 'No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.'
+           CASE WHEN expected IS NOT NULL THEN 'Spring Boot binds this property as ' + last(split(match.type, '.')) + ' and cannot convert the value, so the application fails to start with a binding error.' + CASE WHEN match.deprecated THEN ' The property is also deprecated.' ELSE '' END
+                WHEN match IS NULL THEN 'No Spring Boot, Spring Cloud or starter jar this project resolves documents it, and no @ConfigurationProperties or @Value in the project reads it. A typo, or a property from another version, does nothing; if the code reads it some other way (Environment.getProperty), dismiss it.'
                 WHEN match.deprecationLevel = 'error' THEN 'Spring Boot removed it' + coalesce(' in ' + match.deprecatedSince, '') + ': the setting is silently ignored.' + coalesce(' ' + match.deprecationReason, '')
                 ELSE coalesce(match.deprecationReason, 'Deprecated') + coalesce(' (since ' + match.deprecatedSince + ')', '') + '; it still binds, for now.' END AS detail,
-           CASE WHEN match IS NULL THEN 'Check the spelling against the Spring Boot reference, or remove it.'
+           CASE WHEN expected IS NOT NULL THEN 'Set it to ' + expected + '.' + coalesce(' The default is ' + toString(match.defaultValue) + '.', '')
+                WHEN match IS NULL THEN 'Check the spelling against the Spring Boot reference, or remove it.'
                 WHEN match.replacement IS NOT NULL THEN 'Use ' + match.replacement + ' instead.'
                 ELSE 'Remove it.' END AS fix,
            s.path AS file, s.line AS line, s.link AS link

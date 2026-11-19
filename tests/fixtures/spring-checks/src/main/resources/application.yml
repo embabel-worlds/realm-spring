@@ -1,0 +1,9 @@
+server:
+  tomcat:
+    accept-count: 100
+    max-connections: lots
+spring:
+  task:
+    execution:
+      pool:
+        keep-alive: 60s
