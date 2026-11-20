@@ -82,7 +82,7 @@
   .mine .proj .x{border:0;background:none;color:var(--dim);cursor:pointer;padding:0 2px;font-size:14px} .mine .proj .x:hover{color:var(--red)}
   .mine .proj.cur{border-color:var(--green)}
   details.samples summary{font-size:12px;margin:0 0 6px}
-  .outcome{font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--dim)} .outcome b{color:var(--text)}
+  .outcome{font-size:13px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);color:var(--dim)} .outcome b{color:var(--text)} .partial summary{cursor:pointer} .partial div{margin:4px 0 0 14px}
   .outcome .bad{color:var(--amber)}
   .crumbs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:10px;font-size:13px} .crumbs .crumb{background:none;border:0;padding:0;color:var(--blue);cursor:pointer;font:inherit} .crumbs .crumb:hover{text-decoration:underline} .crumbs span{color:var(--dim)}
   table.nav tr.go{cursor:pointer} table.nav tr.go:hover td{background:var(--surface)}
@@ -909,8 +909,32 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
      matches none the answer is "nothing found" — the one case the runtime reports as FETCHED_NOT_MATCHED. */
   var EXHAUSTIVE = { ModernizationFindings: 1, ModernizationFindingsInCode: 1, ConfigurationProblems: 1, UpgradeConfiguration: 1, VulnerableDependencies: 1,
                      VersionOverrides: 1, Vulnerabilities: 1, Beans: 1, Profiles: 1, Triage: 1 };
+  /*
+   * What a view said about its own answer being short: more rows exist than it was allowed to read,
+   * or part of a source could not be read. Kept by view, so the reader is told which figures are a
+   * floor rather than a count — an answer that is silently short reads as a complete one.
+   */
+  var PARTIAL_NAMES = { ProjectOverview: 'the project’s totals', StackCard: 'the stack card', ModernizationFindings: 'the code rules', ModernizationFindingsInCode: 'the code rules',
+    DocumentedSettings: 'the settings check', SettingsWritten: 'the settings check', SettingsReadByCode: 'the settings check', VulnerableDependencies: 'vulnerable dependencies',
+    Vulnerabilities: 'vulnerabilities', VersionOverrides: 'version overrides', Beans: 'beans', BeanWiring: 'wiring', Endpoints: 'endpoints', CodeChecks: 'code checks',
+    TransactionalWork: 'transactional work', Profiles: 'profiles', ModuleSources: 'the module list', FilesByExtension: 'the languages' };
+  function notePartial(name, answer) {
+    if (!answer || Array.isArray(answer)) return;
+    /* The appliance marks a short answer `outcome: PARTIAL`, with one warning for each thing that made it so. */
+    var said = (answer.warnings || []).map(function (w) { return w && typeof w === 'object' ? (w.code === 'PARTIAL' ? String(w.message || '') : '') : (/^PARTIAL_RESULT/.test(String(w)) ? String(w) : ''); })
+      .filter(Boolean);
+    if (answer.incomplete) said.push(String(answer.incomplete));
+    if (!said.length && answer.outcome !== 'PARTIAL') return;
+    var more = said.filter(function (m) { return /^Incomplete:/i.test(m); }), rest = said.length - more.length, why = [];
+    if (more.length) why.push('more rows exist than it may read (' + more[0].replace(/^Incomplete:\s*/i, '') + ')');
+    if (rest) why.push(rest + ' part' + (rest === 1 ? '' : 's') + ' of its source could not be read');
+    if (!why.length) why.push('the appliance says it may be incomplete');
+    state.partial = state.partial || {};
+    state.partial[PARTIAL_NAMES[name] || name] = why.join('; ');
+    drawProgress();
+  }
   function view(name, params) {
-    return embabel.views.invoke(name, params || {}).then(rowsOf).catch(function (e) {
+    return embabel.views.invoke(name, params || {}).then(function (answer) { notePartial(name, answer); return rowsOf(answer); }).catch(function (e) {
       if (EXHAUSTIVE[name] && e && e.reason === 'FETCHED_NOT_MATCHED') return [];
       throw e;
     });
@@ -972,6 +996,10 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     var o = state.overview, s = state.stack, bits = [];
     if (o) bits.push('Read <b title="' + esc(o.project) + '">' + esc(projectLabel()) + '</b>: ' + o.moduleCount + ' module(s), ' + o.types + ' Java types, ' + o.dependencies + ' dependencies');
     else if (s) bits.push('Read <b>' + esc(state.project) + '</b>');
+    var partial = Object.keys(state.partial || {});
+    if (partial.length) bits.push('<details class="partial"><summary><b>' + partial.length + ' result' + (partial.length === 1 ? ' is' : 's are') +
+      ' partial</b> — what they show is a floor, not the whole</summary>' +
+      partial.map(function (k) { return '<div>' + esc(k) + ': ' + esc(state.partial[k]) + '</div>'; }).join('') + '</details>');
     return bits.length ? '<div class="outcome">' + bits.join('<br>') + '</div>' : '';
   }
   function kotlinFiles() {
@@ -993,7 +1021,7 @@ ORDER BY cvss DESC LIMIT 1000</pre></details>
     $('project').value = key;
     var again = key === state.project;   /* a second read of the same project keeps your place in it */
     state = Object.assign(state, { saved: false, modules: again ? state.modules : null, languages: again ? state.languages : null,
-                                   nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
+                                   nav: again ? state.nav : (state.pendingNav || { level: 'modules' }), loading: {}, upToDate: false, partial: {}, overview: null, project: key, stack: null, findings: [], triage: {}, beans: null, profiles: null, upgrade: null, filter: null, advisories: null });
     state.pendingNav = null;
     if (!again) { state.sumRuns = {}; state.sumStarted = {}; sumQueue = []; state.wire = ''; state.askWords = ''; state.askAnswer = null; state.asking = null; state.addOpen = false; state.addNote = ''; state.codeWords = ''; state.codeHits = null; state.codeSearching = null; Object.keys(state).forEach(function (k) { if (k.indexOf('app_') === 0) delete state[k]; }); }
     if (!again) Object.keys(state).forEach(function (k) { if (/^(pk|fl):/.test(k)) delete state[k]; });

@@ -3,6 +3,8 @@
  * through whatever command `LIVE_VIEW` names (it is given the view's name and its arguments as JSON, and
  * prints the appliance's answer), so what is timed is what a reader waits for. Usage:
  *   LIVE_VIEW="python3 /path/to/mcp.py view_run" node tests/live.mjs <project key> [seconds] [screenshot.png]
+ * The command may print either a tool's answer (`{rows: […]}`) or the envelope the appliance's own
+ * `POST /api/v1/views/{name}/invoke` returns, which is what a page really receives and carries `outcome: PARTIAL`.
  * Prints when the stack card appeared, each check's outcome and time as the page shows them, every view's
  * rows and seconds, and any console error.
  */
@@ -25,14 +27,19 @@ const invoke = (name, args) => new Promise((resolve) => {
     const secs = (Date.now() - started) / 1000;
     let answer;
     try { answer = JSON.parse(stdout); } catch { answer = null; }
-    const rows = answer && Array.isArray(answer.rows) ? answer.rows : null;
-    calls.push({ name, secs, rows: rows ? rows.length : null, error: rows ? null : String(stdout || err || '').slice(0, 160) });
-    resolve(rows ? { rows } : { error: String(stdout || err || 'no answer').slice(0, 400) });
+    /* either the rows a tool call returns, or the envelope the app runtime hands a page (`data`, `outcome`, `warnings`) */
+    const envelope = answer && Array.isArray(answer.data) && answer.status !== 'FAILED' ? answer : null;
+    const rows = envelope ? envelope.data : answer && Array.isArray(answer.rows) ? answer.rows : null;
+    calls.push({ name, secs, rows: rows ? rows.length : null, partial: !!envelope && envelope.outcome === 'PARTIAL',
+      error: rows ? null : (answer && answer.error && answer.error.reason) || String(stdout || err || '').slice(0, 160) });
+    /* a refusal reaches the page as the runtime throws it: a message and the appliance's reason */
+    const failure = answer && answer.error && typeof answer.error === 'object' ? answer.error : null;
+    resolve(rows ? { answer: envelope || rows } : { error: failure ? String(failure.message) : String(stdout || err || 'no answer').slice(0, 400), reason: failure ? failure.reason : null });
   });
 });
 
 const stub = `
-  window.embabel = { views: { invoke: async (name, args) => { const r = await window.__live(name, args || {}); if (r.error) throw new Error(r.error); return r.rows; } } };
+  window.embabel = { views: { invoke: async (name, args) => { const r = await window.__live(name, args || {}); if (r.error) throw Object.assign(new Error(r.error), { reason: r.reason }); return r.answer; } } };
   window.gateway = { repository: { createEntry: async () => ({}), deleteEntry: async () => ({}) }, ingest: { document: async () => ({}) }, realms: { realmSyncDocuments: async () => ({}), realmStatus: async () => ({}) } };`;
 
 const browser = await chromium.launch();
@@ -64,7 +71,7 @@ try {
 console.log('\nprogress, as the page shows it:\n' + (await page.locator('#progress').innerText()).split('\n').filter(Boolean).join(' | '));
 console.log('\nstack card:\n' + (await page.locator('#stack').innerText().catch(() => '')).split('\n').filter(Boolean).slice(0, 12).join(' | '));
 console.log('\nviews asked for:');
-for (const c of calls) console.log('  ' + c.name.padEnd(30) + String(c.rows ?? 'FAILED').padStart(7) + ' rows ' + c.secs.toFixed(1).padStart(6) + ' s' + (c.error ? '  ' + c.error.replace(/\s+/g, ' ') : ''));
+for (const c of calls) console.log('  ' + c.name.padEnd(30) + String(c.rows ?? 'FAILED').padStart(7) + ' rows ' + c.secs.toFixed(1).padStart(6) + ' s' + (c.partial ? '  partial' : '') + (c.error ? '  ' + c.error.replace(/\s+/g, ' ') : ''));
 console.log('\nconsole errors: ' + (errors.length ? '\n  ' + errors.join('\n  ') : 'none'));
 if (shot) await page.screenshot({ path: shot, fullPage: true });
 await browser.close();

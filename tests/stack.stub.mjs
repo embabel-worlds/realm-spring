@@ -113,6 +113,9 @@ const stub = (mode) => `
     if (name === 'PackageSummary' && MODE === 'bigProject') return { status: 'ok', rows: [], warnings: ["PARTIAL_RESULT: producer 'codePackageSummary' (collect): the items were not all gathered (would ask the source for 10606 distinct keys, exceeding maxAnchors 200)"] };
     if (name === 'FileSummary') { if (MODE === 'slowSum') await wait(1500); const t = FIX.FileSummary[args.path]; return t ? [{ path: args.path, summary: t, declarations: 4, generatedAt: '2026-11-19T04:00:00Z' }] : []; }
     if (!FIX[name]) throw new Error('no fixture for ' + name);
+    /* the envelope as the appliance sends it for a short answer */
+    if (MODE === 'partial' && name === 'SettingsWritten') return { status: 'SUCCEEDED', outcome: 'PARTIAL', data: FIX[name],
+      warnings: [{ code: 'PARTIAL', message: 'The result may be incomplete.' }, { code: 'PARTIAL', message: 'Incomplete: based on the first 18327 rows, more exist' }, { code: 'COST', message: 'a cost note' }] };
     return FIX[name];
   } } };
   window.gateway = { repository: {
@@ -150,6 +153,21 @@ try {
   ok((await text(page, '#samples')).includes('No project of yours yet'), 'with no project of the reader\'s own, the samples are offered and say why');
   ok(await page.locator('#samples details').count() === 0, 'and are not tucked away');
   ok(await page.locator('#report').isHidden(), 'no report is shown before a project is read');
+  await page.close();
+
+  console.log('a result that is partial');
+  ({ page, errors } = await open(browser, 'partial'));
+  await finished(page);
+  const partialNote = await text(page, '#progress .outcome .partial');
+  ok(partialNote.includes('1 result is partial') && partialNote.includes('a floor, not the whole'), 'the outcome says a result is partial, and what that means');
+  await page.locator('#progress .partial summary').click();
+  ok((await text(page, '#progress .outcome .partial')).includes('the settings check: more rows exist than it may read (based on the first 18327 rows, more exist); 1 part of its source could not be read'),
+    'and opened, which result, and why: more rows than were read, and a part of the source that could not be read; a cost note is not one');
+  ok(errors.length === 0, 'no console errors: ' + errors.join(' | '));
+  await page.close();
+  ({ page, errors } = await open(browser, 'ok'));
+  await finished(page);
+  ok(await page.locator('#progress .partial').count() === 0, 'a project whose results are whole says nothing about partial ones');
   await page.close();
 
   console.log('a project on the newest release');
