@@ -4,6 +4,7 @@
 
 - name: CodeChecks
   description: >-
+    Spring code problems in a project's main source, each with its fix.
     SELECT THIS for "what is wrong with this Spring code", "review the Spring usage", "what should
     be cleaned up before upgrading". Checks over the project's main source in Java, Kotlin and
     Scala, one row per finding: a code, a severity (error: will fail or is removed; warning: wrong
@@ -23,7 +24,7 @@
     like) or version 7 removes (authorizeRequests, and(), the non-lambda form). Read from
     declarations, annotations and calls as written; nothing is compiled or run.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE (NOT d.path CONTAINS 'src/test/' OR (d.kind = 'class' AND 'ExtendWith' IN d.annotations)) AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method', 'function']

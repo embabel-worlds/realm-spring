@@ -6,6 +6,7 @@
 
 - name: SettingsExplicit
   description: >-
+    Every setting the project's application files set, beside Boot's default.
     SELECT THIS for "what does this application set", "which settings did we choose", "what
     configuration differs from Spring Boot's defaults". Every setting in the project's
     application*.properties and YAML files with its value, file and line, beside what Spring Boot
@@ -16,7 +17,7 @@
     typo (ConfigurationProblems says which are typos).
     Downloads the project's Spring Boot jars the first time.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
     WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
@@ -39,6 +40,7 @@
 
 - name: SettingsByDefault
   description: >-
+    Settings Spring Boot binds for the project that no application file sets.
     SELECT THIS for "what defaults is this application running on", "which settings has nobody
     chosen", "what is the connection pool size if we never set it". The settings Spring Boot
     binds for this project that NO application file sets, each with the default in force and what
@@ -50,7 +52,7 @@
     ('server.', 'spring.datasource'), or `notableOnly`. This is what the files and jars say: an
     environment variable or command-line argument at run time can still set any of them.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
     prefix: { type: string, default: "", description: "Only settings whose key starts with this; empty for all." }
     notableOnly: { type: boolean, default: false, description: "Only the defaults that most often matter in production." }
     limit: { type: int, default: 2000, description: "How many to return; a web application has about a thousand." }
@@ -97,6 +99,7 @@
 
 - name: SettingsNeeded
   description: >-
+    Settings the code asks for with @Value, and where each one is supplied.
     SELECT THIS for "which settings does the code require", "will this start without
     configuration", "which @Value has no value". Every setting the code asks for with
     @Value("${...}"), with where it is asked for and where it is supplied (test sources are left out). `supplied` is 'in a
@@ -104,7 +107,7 @@
     nothing in the repository': that one must come from the environment at run time, and the
     application fails to start with "Could not resolve placeholder" when it does not.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation)
     WHERE a.name = 'Value' AND a.value CONTAINS '${' AND NOT a.path CONTAINS 'src/test/'
@@ -125,11 +128,12 @@
 
 - name: DocumentedSettings
   description: >-
+    Every property the project's Spring jars document, once each by name.
     Every configuration property the project's Spring jars document, once each by name, with its
     type and whether Spring Boot has deprecated it. Downloads the project's Spring jars the first
     time. One of the three inputs of the configuration check.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_JAR]->(j:ProjectJar)
     WHERE j.jarPath IS NOT NULL AND (j.groupId STARTS WITH 'org.springframework' OR j.artifactId CONTAINS 'spring-boot'
@@ -143,11 +147,13 @@
 
 - name: SettingsWritten
   description: >-
+    Every setting the project's application properties and YAML files write.
     Every setting the project's main resources write in application*.yml and .properties files:
     its key, its value, its file and line. Message bundles and logging files are left out. One of
     the three inputs of the configuration check.
+    Test resources are not read.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_SETTING]->(s:ProjectSetting)
     WHERE s.path CONTAINS 'src/main/resources' AND NOT s.path CONTAINS '/META-INF/'
@@ -159,13 +165,14 @@
 
 - name: SettingsReadByCode
   description: >-
+    The settings the project's own code binds, by annotation, file and line.
     The settings the project's own code binds, in Java, Kotlin or Scala: each
     @ConfigurationProperties, and every annotation that reads a ${key} (@Value, @Scheduled's cron,
     a @FeignClient's url and the rest), as written, with its file and line. A setting under one of
     these is the project's own and is not Spring Boot's to document. One of the three inputs of the
     configuration check.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'

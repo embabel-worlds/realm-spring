@@ -4,10 +4,11 @@
 
 - name: WhyNotApplied
   description: >-
-    Why each auto-configuration or @Bean method did NOT apply in a running app, in Spring's own
-    words — "why isn't my bean created". Takes /actuator/conditions.
+    Why each auto-configuration or @Bean method did NOT apply in a running app.
+    In Spring's own words — "why isn't my bean created". Takes /actuator/conditions. Only what
+    did not apply: the conditions that matched are left out. At most 2000 rows.
   params:
-    actuator: { type: string, description: "The /actuator/conditions JSON, or the actuator URL." }
+    actuator: { type: string, required: true, description: "The /actuator/conditions JSON, or the actuator URL." }
   cypher: |
     MATCH (:RunningApp {actuator: $actuator})-[:EVALUATED]->(c:RuntimeCondition {configurationMatched: false, outcome: 'notMatched'})
     RETURN c.configuration AS configuration, c.beanMethod AS beanMethod, c.condition AS condition, c.message AS why
@@ -15,10 +16,12 @@
 
 - name: RuntimeBeans
   description: >-
-    The beans a running app actually created — name, the class behind any proxy, scope, where it
-    was defined and what it depends on. Takes /actuator/beans.
+    The beans a running app actually created, from /actuator/beans.
+    Each with its name, the class behind any proxy, scope, where it was defined and what it
+    depends on. Takes /actuator/beans.
+    Only the running app's beans; what the source declares is the Beans view.
   params:
-    actuator: { type: string, description: "The /actuator/beans JSON, or the actuator URL." }
+    actuator: { type: string, required: true, description: "The /actuator/beans JSON, or the actuator URL." }
   cypher: |
     MATCH (:RunningApp {actuator: $actuator})-[:HAS_BEAN]->(b:RuntimeBean)
     RETURN b.name AS bean, b.targetType AS type, b.scope AS scope, b.resource AS definedIn, b.dependencies AS dependsOn
@@ -26,10 +29,12 @@
 
 - name: EffectiveSettings
   description: >-
-    For each property in a running app, which property source's value won and where it came
-    from (file and line, environment variable, system property). Takes /actuator/env.
+    Which property source's value won for each setting in a running app.
+    With where it came from (file and line, environment variable, system property). Takes
+    /actuator/env.
+    Only what /actuator/env reports: a masked value stays masked.
   params:
-    actuator: { type: string, description: "The /actuator/env JSON, or the actuator URL." }
+    actuator: { type: string, required: true, description: "The /actuator/env JSON, or the actuator URL." }
   cypher: |
     MATCH (:RunningApp {actuator: $actuator})-[:HAS_SETTING]->(s:RuntimeSetting {effective: true})
     RETURN s.name AS property, s.value AS value, s.source AS source, s.origin AS origin, s.masked AS masked
@@ -39,8 +44,9 @@
   description: >-
     Advisories against what a running app actually shipped, from its SBOM. Takes
     /actuator/sbom/application.
+    Only components the SBOM lists; for what the build resolves use Vulnerabilities.
   params:
-    actuator: { type: string, description: "The /actuator/sbom/application JSON, or the actuator URL." }
+    actuator: { type: string, required: true, description: "The /actuator/sbom/application JSON, or the actuator URL." }
   cypher: |
     MATCH (:RunningApp {actuator: $actuator})-[:SHIPS]->(c:RuntimeComponent)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
     RETURN c.coordinates AS component, a.advisoryId AS advisory, [y IN x.aliases WHERE y STARTS WITH 'CVE-'][0] AS cve,

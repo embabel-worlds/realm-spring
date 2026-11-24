@@ -4,6 +4,7 @@
 
 - name: EmbabelModel
   description: >-
+    The agents, actions, goals and tools a project declares with Embabel.
     SELECT THIS for "what agents does this application define", "what actions and goals does it
     have", "which tools can the model call", "what does this agent do". Everything the project's
     main source declares with the Embabel agent framework's annotations, one row each: an agent
@@ -15,7 +16,7 @@
     conditions, canRerun, trigger and the rest), file and line. Read from declarations; what the
     planner would actually do at run time is not computed.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
@@ -42,6 +43,7 @@
 
 - name: EmbabelChecks
   description: >-
+    Problems in a project's Embabel agents, tools and actions, with fixes.
     SELECT THIS for "what is wrong with our agents", "which tools will a model misuse", "review the
     Embabel usage". Checks on a project's Embabel declarations, one row per finding with a code, a
     severity, what was found, where, and `fix`, the change to make: a tool (@LlmTool) with no
@@ -50,7 +52,7 @@
     action that produces nothing (Unit or void), which the planner cannot chain on. Read from
     declarations in Java, Kotlin and Scala.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'

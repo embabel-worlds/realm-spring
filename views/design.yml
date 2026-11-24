@@ -3,6 +3,7 @@
 
 - name: ControllersUsingRepositories
   description: >-
+    Controllers that inject a repository directly, skipping a service layer.
     SELECT THIS for "which controllers talk to a repository directly", "which controllers skip the
     service layer", "where is persistence reached from the web layer". Every controller
     (@Controller or @RestController) that injects a repository: a Spring Data repository interface
@@ -12,7 +13,7 @@
     service is not listed, which is the point. Whether this is a problem is a matter of house
     style: it is normal in a small application and usually unwanted in a layered one.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method', 'function']
@@ -46,6 +47,7 @@
 
 - name: TransactionalWork
   description: >-
+    What each transactional method does inside: reads, writes, read-only fit.
     SELECT THIS for "which transactions do the most", "which transactions could be read-only",
     "what does this transactional method touch". Every method the project's main source runs in a
     transaction (@Transactional on the method, in Java, Kotlin or Scala), with what it does inside:
@@ -58,7 +60,7 @@
     a method that only delegates shows no operations. @Transactional on a class is not expanded to
     its methods.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['method', 'function'] AND 'Transactional' IN d.annotations
