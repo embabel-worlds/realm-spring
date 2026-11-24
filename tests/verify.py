@@ -68,6 +68,10 @@ views = []
 for f in sorted(glob.glob('views/*.yml')):
     views += yaml.safe_load(open(f)) or []
 answers = {}
+# A view whose true answer on the pinned project is NO rows, checked against the source in L2. The
+# appliance reports "records were read and none matched" (FETCHED_NOT_MATCHED) as FAILED, because it
+# cannot tell an honest zero from a query that missed; L2 says which this is.
+EMPTY_BY_TRUTH = {'VersionOverrides'}
 for v in views:
     params = v.get('params') or {}
     args = {p: REQUIRED[p] for p, spec in params.items() if isinstance(spec, dict) and 'default' not in spec}
@@ -75,6 +79,8 @@ for v in views:
     d = view(v['name'], args)
     answers[v['name']] = d
     err = failed(d)
+    if v['name'] in EMPTY_BY_TRUTH and not rows(d) and 'FETCHED_NOT_MATCHED' in json.dumps(d.get('error') or d.get('errors') or d):
+        err = None
     check(not err, f"L1 {v['name']} answers ({len(rows(d))} rows, {d.get('outcome', '?')})", err or '')
 
 # ---- L2: reconciled against the sources -------------------------------------------------------
@@ -130,6 +136,11 @@ for path in glob.glob(os.path.join(work, 'src/main/**/*.java'), recursive=True):
     prefix = re.search(r'^@RequestMapping\("([^"]*)"\)', src, re.M)
     for verb, route in re.findall(r'^\s+@(Get|Post|Put|Delete|Patch)Mapping\(\{?\s*"([^"]*)"', src, re.M):
         endpoints.add((verb.upper(), (prefix.group(1) if prefix else '') + route))
+# The pom has no <dependencyManagement> and sets no property Spring Boot's BOM reads, so the build
+# overrides nothing Spring Boot manages: VersionOverrides must answer no rows.
+overrides = '<dependencyManagement>' in pom
+check(not overrides and not rows(answers['VersionOverrides']),
+      'L2 VersionOverrides: no overrides, as the pom (no dependencyManagement) says', rows(answers['VersionOverrides'])[:3])
 got = {(r['method'], r['route']) for r in rows(answers['Endpoints'])}
 check(got == endpoints, f'L2 Endpoints: the {len(endpoints)} mappings the source declares',
       f'missing {sorted(endpoints - got)} extra {sorted(got - endpoints)}')
