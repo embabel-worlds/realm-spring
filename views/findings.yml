@@ -9,11 +9,12 @@
 
 - name: StackCard
   description: >-
+    A Spring project's Boot and Framework versions and how long they are supported.
     What a Spring project runs on: its Spring Boot and Spring Framework versions, the Boot line and
     when that line's open-source and commercial support end, the Java versions the line supports,
     its latest patch, and the newest Spring Boot line. The first call for a Spring project.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
     WHERE (d.groupId = 'org.springframework.boot' AND d.artifactId = 'spring-boot')
@@ -42,13 +43,15 @@
 
 - name: ModernizationFindings
   description: >-
+    Upgrade blockers matched by import or file, from the Spring rule catalogue.
     Code Spring has moved past, in Java, Kotlin or Scala, from the realm's rule catalogue (reference/rules.yml — the SpringRule
     rows): javax packages Jakarta EE renamed, removed adapters, @MockBean, JUnit 4, Jackson 2 under
     Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it
     breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring's documentation.
     With `target` (a Spring Boot version) it says which findings block that upgrade.
+    Rules matched by an annotation, a field or a supertype are not here: ModernizationFindingsInCode has them.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
     target: { type: string, default: "", description: "Spring Boot version you are upgrading to, e.g. 3.5.16; empty for none." }
   cypher: |
     MATCH (r:SpringRule {kind: 'import'})
@@ -79,6 +82,7 @@
 
 - name: ModernizationFindingsInCode
   description: >-
+    Upgrade blockers matched by annotation, field or supertype in the code.
     The second half of ModernizationFindings: the rules that match an annotation, an injected
     field or a supertype, where that view has those that match an import or a file. Two views
     because each reads a whole project's rows of one kind, and a large project's imports and
@@ -88,8 +92,9 @@
     Spring Boot 4, field injection and more. Each finding names its rule, the Spring Boot version it
     breaks in, the fix, the OpenRewrite recipe when one is verified, and Spring's documentation.
     With `target` (a Spring Boot version) it says which findings block that upgrade.
+    Rules matched by an import or a file are not here: ModernizationFindings has them.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
     target: { type: string, default: "", description: "Spring Boot version you are upgrading to, e.g. 3.5.16; empty for none." }
   cypher: |
     MATCH (r:SpringRule {kind: 'annotation'})
@@ -135,8 +140,10 @@
 
 - name: BootLines
   description: >-
-    Every Spring Boot line: when its open-source and commercial support end, the Java versions it
-    supports, and its latest patch — what to upgrade to, and what that asks of your Java.
+    Every Spring Boot line with its support end dates and supported Java.
+    When each line's open-source and commercial support end, the Java versions it supports, and
+    its latest patch — what to upgrade to, and what that asks of your Java.
+    Not tied to a project: StackCard says which line a project is on.
   cypher: |
     MATCH (sp:SpringProduct {slug: 'spring-boot'})-[:HAS_GENERATION]->(g:SpringGeneration)
     WITH sp, g, toString(date()) AS today
@@ -152,6 +159,7 @@
 
 - name: GradleStackCard
   description: >-
+    StackCard for a Gradle project: its Spring Boot version and support dates.
     StackCard for a GRADLE project, whether its build files are Groovy (build.gradle) or Kotlin
     (build.gradle.kts): the Spring Boot version the build applies, the Boot line and when that
     line's open-source and commercial support end, the Java versions the line supports, its latest
@@ -162,7 +170,7 @@
     the build as written, nothing is evaluated: a version computed in code or set by a settings
     plugin is not found. Spring Framework's version is not given (Boot manages it).
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:BUILD_LINES]->(l:SpringBuildLine)
     WITH l, CASE WHEN l.format = 'toml' THEN replace(l.text, ' ', '')
@@ -208,6 +216,7 @@
 
 - name: GradleDependencies
   description: >-
+    The dependencies a Gradle project's build files declare, as written.
     The dependencies a GRADLE project's build files declare, Groovy (build.gradle) or Kotlin
     (build.gradle.kts), as written: configuration (implementation, api, runtimeOnly,
     testImplementation and the rest), group, artifact, and the version when one is written; no
@@ -218,7 +227,7 @@
     transitively is not resolved, a version held in a variable is the variable as written, and
     dependencies on other modules of the build are left out.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:BUILD_LINES]->(l:SpringBuildLine)
     WITH l, CASE WHEN l.format = 'toml' THEN replace(l.text, ' ', '')

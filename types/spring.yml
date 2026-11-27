@@ -14,104 +14,138 @@
 - name: SpringGeneration
   visibility: internal
   userAnchor: false
-  description: "A release line of a Spring project (`3.5.x`) and when its support ends, from spring.io: open-source support, then commercial. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_GENERATION]->."
+  description: "One release line of a Spring project, identified by `name` (`3.5.x`), and when its support ends, from spring.io: open-source support, then commercial. Read live from spring.io, cached a day. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_GENERATION]->."
   virtualJoins:
-    - { anchorLabel: SpringProduct, relationship: HAS_GENERATION, keyField: slug, recordKeyField: slug, producer: springGenerations }
+    - { anchorLabel: SpringProduct, relationship: HAS_GENERATION, keyField: slug, recordKeyField: slug, producer: springGenerations,
+        description: "Every release line spring.io lists for one Spring project, with its support end dates: one spring.io call per project slug (spring-boot, spring-framework, …), all lines in it. For 'is my Spring Boot line still supported', pin the slug and compare ossSupportEndDate with today." }
   properties:
     name: { identity: true, description: "The line, e.g. 3.5.x." }
-    initialReleaseDate: "When the line's first release shipped."
-    ossSupportEndDate: "When open-source support ends: no more free patch releases after it."
-    commercialSupportEndDate: "When commercial support ends."
+    initialReleaseDate: "The calendar day the line's first release shipped, ISO YYYY-MM-DD, as spring.io publishes it."
+    ossSupportEndDate: "The calendar day open-source support ends, ISO YYYY-MM-DD: no more free patch releases after it. A date in the past means the line is out of free support."
+    commercialSupportEndDate: "The calendar day commercial (paid) support ends, ISO YYYY-MM-DD; after it no patch is published at all."
     slug: "The Spring project, e.g. spring-boot."
+  examples:
+    - q: "which Spring Boot lines still get free patches"
+      cypher: |
+        MATCH (:SpringProduct {slug: 'spring-boot'})-[:HAS_GENERATION]->(g:SpringGeneration)
+        WHERE g.ossSupportEndDate >= toString(date())
+        RETURN g.name AS line, g.ossSupportEndDate AS ossSupportEnds
+        ORDER BY line
 
 - name: SupportCycle
   visibility: internal
   userAnchor: false
-  description: "A release cycle of a product from endoflife.date; for Spring Boot it says which Java versions the line supports. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_CYCLE]->."
+  description: "One release cycle of a product from endoflife.date, identified by `cycle` (e.g. 3.5); for Spring Boot it says which Java versions the line supports. Read live, cached a day. Reach it from (:SpringProduct {slug:'spring-boot'})-[:HAS_CYCLE]->."
   virtualJoins:
-    - { anchorLabel: SpringProduct, relationship: HAS_CYCLE, keyField: slug, recordKeyField: slug, producer: supportCycles }
+    - { anchorLabel: SpringProduct, relationship: HAS_CYCLE, keyField: slug, recordKeyField: slug, producer: supportCycles,
+        description: "Every release cycle endoflife.date lists for one product, newest first: one call per product slug. Use it for which Java a Spring Boot line supports; for Spring's own support end dates prefer HAS_GENERATION, which is spring.io's word." }
   properties:
     cycle: { identity: true, description: "The cycle, e.g. 3.5." }
-    releaseDate: "When it was released."
-    eol: "When support ends (a date, or false)."
-    extendedSupport: "When extended support ends, if offered."
-    latest: "Its latest release."
+    releaseDate: "The calendar day the cycle's first release shipped, ISO YYYY-MM-DD, per endoflife.date."
+    eol: "The day support ends, ISO YYYY-MM-DD; a boolean instead when endoflife.date gives no date (false: no end announced, true: ended)."
+    extendedSupport: "The day extended (paid) support ends, ISO YYYY-MM-DD, or false/empty when none is offered."
+    latest: "The newest release in this cycle, e.g. 3.5.6."
     supportedJavaVersions: "Java versions it supports, e.g. '17 - 25'."
-    slug: "The product."
+    slug: "The endoflife.date product slug it was read for, e.g. spring-boot."
 
 - name: DependencyAdvisory
   visibility: internal
   userAnchor: false
-  description: "A security advisory affecting one exact version of a dependency, from deps.dev. Its title and CVE ids are on DESCRIBED_BY, the versions that fix it on FIXED_IN. Reach it from a ProjectDependency or a RuntimeComponent via HAS_ADVISORY."
+  description: "One security advisory affecting one exact version of a dependency, from deps.dev, identified by its GHSA `advisoryId`. Its title and CVE ids are on DESCRIBED_BY, the versions that fix it on FIXED_IN. Reach it from a ProjectDependency or a RuntimeComponent via HAS_ADVISORY."
   virtualJoins:
-    - { anchorLabel: ProjectDependency, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000 }
-    - { anchorLabel: RuntimeComponent, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000 }
+    - { anchorLabel: ProjectDependency, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000,
+        description: "The advisories deps.dev records against the exact version a project resolves: one deps.dev call per distinct groupId:artifactId:version (kept a week), at most 3000 dependencies. A dependency with none has no edge. Then DESCRIBED_BY for the title and CVSS, FIXED_IN for the versions that fix it." }
+    - { anchorLabel: RuntimeComponent, relationship: HAS_ADVISORY, keyField: coordinates, recordKeyField: coordinates, producer: versionAdvisories, maxAnchors: 3000,
+        description: "The advisories against a component a running app actually shipped (its actuator SBOM): one deps.dev call per distinct version, kept a week. Use this rather than the project's dependencies to ask what is vulnerable in production." }
   properties:
-    advisoryId: { identity: true, description: "GHSA-… id." }
+    advisoryId: { identity: true, description: "The GitHub Security Advisory id, e.g. GHSA-4wrc-f8pq-fpqp; CVE ids are on AdvisoryDetail.aliases." }
     coordinates: "The artifact version it affects, groupId:artifactId:version."
+  examples:
+    # Distinct versions first: a dependency reached by several paths is one lookup, not several.
+    - q: "which dependencies of my project have a vulnerability scored 7 or more"
+      cypher: |
+        MATCH (:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+        WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
+        WITH DISTINCT d.coordinates AS coordinates, head(collect(d)) AS d
+        MATCH (d)-[:HAS_ADVISORY]->(a:DependencyAdvisory)-[:DESCRIBED_BY]->(x:AdvisoryDetail)
+        WHERE x.cvss3Score >= 7
+        RETURN coordinates, a.advisoryId AS advisory, x.cvss3Score AS cvss, x.title AS title
+        ORDER BY cvss DESC
+    # A running app's SBOM, given as its JSON, reaches the same advisories through SHIPS.
+    - q: "what fixes the advisories in what my running app shipped"
+      cypher: |
+        MATCH (:RunningApp {actuator: $sbom})-[:SHIPS]->(c:RuntimeComponent)-[:HAS_ADVISORY]->(a:DependencyAdvisory)
+        OPTIONAL MATCH (a)-[:FIXED_IN]->(f:AdvisoryFix)
+        RETURN c.coordinates AS component, a.advisoryId AS advisory, collect(f.fixed) AS fixedIn
 
 - name: AdvisoryDetail
   visibility: internal
   userAnchor: false
-  description: "What an advisory is: title, CVE aliases, CVSS 3 score and its page."
+  description: "One advisory's description from deps.dev, identified by its GHSA `advisoryId`: title, CVE aliases, CVSS 3 score and its page. One per DependencyAdvisory; read live, cached a day (an advisory's score or text can be revised)."
   virtualJoins:
-    - { anchorLabel: DependencyAdvisory, relationship: DESCRIBED_BY, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryDetails, maxAnchors: 5000 }
+    - { anchorLabel: DependencyAdvisory, relationship: DESCRIBED_BY, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryDetails, maxAnchors: 5000,
+        description: "The title, CVE ids and CVSS 3 score of one advisory: one deps.dev call per distinct advisory id, kept a day. Exactly one per advisory. Filter on cvss3Score here to keep only the severe ones." }
   properties:
-    advisoryId: { identity: true, description: "GHSA-… id." }
-    title: "What it is."
+    advisoryId: { identity: true, description: "The GitHub Security Advisory id, e.g. GHSA-4wrc-f8pq-fpqp." }
+    title: "The advisory's one-line title, as published."
     aliases: { cardinality: LIST, description: "CVE ids and other names." }
-    cvss3Score: { type: double, description: "CVSS 3 base score, 0–10." }
-    url: "Its page."
+    cvss3Score: { type: double, description: "CVSS 3 base score, 0–10; 0 or empty when deps.dev has no CVSS 3 vector for it." }
+    url: "The advisory's public web page (usually on github.com/advisories)."
 
 - name: AdvisoryFix
   visibility: internal
   userAnchor: false
-  description: "A version that fixes an advisory, one per maintenance line affected (from OSV). Upgrade to the fix on your own line — the one that shares your major.minor — when there is one."
+  description: "One version that fixes an advisory, identified by the version string `fixed`, one per maintenance line affected (from OSV). Upgrade to the fix on your own line — the one that shares your major.minor — when there is one. A fix not on Maven Central (PublishedVersion) is a commercial-only release."
   virtualJoins:
-    - { anchorLabel: DependencyAdvisory, relationship: FIXED_IN, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryFixes, maxAnchors: 5000 }
+    - { anchorLabel: DependencyAdvisory, relationship: FIXED_IN, keyField: advisoryId, recordKeyField: advisoryId, producer: advisoryFixes, maxAnchors: 5000,
+        description: "Every version OSV names as fixing one advisory, one per maintenance line: one OSV call per distinct advisory id, kept a day. None when no fix is released yet. Pick the one sharing the dependency's major.minor; check it is downloadable through PUBLISHED." }
   properties:
-    fixed: { identity: true, description: "A fixed version." }
-    advisoryId: "The advisory."
+    fixed: { identity: true, description: "A version that contains the fix, e.g. 6.1.14, as OSV writes it." }
+    advisoryId: "The GHSA id of the advisory this version fixes."
 
 - name: BootProperty
   visibility: internal
   userAnchor: false
-  description: "A configuration property a Spring Boot jar documents (spring-configuration-metadata.json): type, default, description, and Spring's own deprecation — `deprecationLevel` warning (still binds) or error (removed), with its `replacement`. Reach it from a ProjectJar or a BootJar via DOCUMENTS."
+  description: "One configuration property a Spring Boot jar documents, identified by `id` (the jar and the property name) (spring-configuration-metadata.json): type, default, description, and Spring's own deprecation — `deprecationLevel` warning (still binds) or error (removed), with its `replacement`. Reach it from a ProjectJar or a BootJar via DOCUMENTS."
   virtualJoins:
-    - { anchorLabel: ProjectJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties }
-    - { anchorLabel: BootJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties }
+    - { anchorLabel: ProjectJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties,
+        description: "Every property one jar a project resolves documents in its spring-configuration-metadata.json, read from the jar in the world's repository; a jar with no metadata has none. Answers 'does Spring Boot bind this setting in the version I use, and is it deprecated'." }
+    - { anchorLabel: BootJar, relationship: DOCUMENTS, keyField: jarPath, recordKeyField: anchorKey, producer: bootProperties,
+        description: "Every property one Spring Boot release's own jar documents: read for a TARGET version, to see what a property becomes after an upgrade. For the project's current version use the ProjectJar path." }
   properties:
     id: { identity: true, description: "Jar and property name." }
     name: "The property, e.g. spring.data.redis.host."
-    type: "Its Java type; a java.util.Map type takes keys below its name."
+    type: "The Java type it binds to, fully qualified, e.g. `java.lang.String` or `java.time.Duration`; a java.util.Map type takes keys below its name. Open-ended."
     description: "What it does."
-    defaultValue: "Its default."
+    defaultValue: "The value Spring Boot uses when nothing sets it, as the metadata writes it; empty when none is documented."
     sourceType: "The @ConfigurationProperties class that binds it."
-    deprecated: { type: boolean, description: "Deprecated." }
-    deprecationLevel: "warning (still binds) or error (removed)."
+    deprecated: { type: boolean, description: "True when Spring Boot's metadata marks the property deprecated at either level." }
+    deprecationLevel: "warning (deprecated, still binds) or error (removed, no longer binds); meaningful only when deprecated is true."
     replacement: "The property to use instead."
-    deprecationReason: "Why."
-    deprecatedSince: "Since which version."
+    deprecationReason: "Spring's own explanation of the deprecation, as the metadata writes it; empty when it gives none."
+    deprecatedSince: "The Spring Boot VERSION it was deprecated in, e.g. 3.2.0 — a version string, not a date; empty when the metadata does not say."
     jarPath: "The jar that documents it."
 
 - name: BootAutoConfiguration
   visibility: internal
   userAnchor: false
-  description: "An auto-configuration a Spring Boot jar registers."
+  description: "One auto-configuration class a Spring Boot jar registers, identified by `id` (the jar and the class), read from the jar's AutoConfiguration.imports (Boot 2.7+) or spring.factories."
   virtualJoins:
-    - { anchorLabel: ProjectJar, relationship: REGISTERS, keyField: jarPath, recordKeyField: anchorKey, producer: bootAutoConfigurations }
+    - { anchorLabel: ProjectJar, relationship: REGISTERS, keyField: jarPath, recordKeyField: anchorKey, producer: bootAutoConfigurations,
+        description: "Every auto-configuration one jar a project resolves registers: what Spring Boot may configure for it. Whether each one actually applied is a runtime question — RunningApp EVALUATED." }
   properties:
     id: { identity: true, description: "Jar and class." }
     name: "The auto-configuration class."
-    simpleName: "Its simple name."
+    simpleName: "The class name without its package, e.g. DataSourceAutoConfiguration."
     registeredIn: "imports (Boot 2.7+) or spring.factories."
 
 - name: BootManagedVersion
   visibility: internal
   userAnchor: false
-  description: "A version a Spring Boot release's BOM pins. Pin the BOM by its coordinates: (:BootBom {coordinates:'org.springframework.boot:spring-boot-dependencies:3.5.6'})-[:PINS]->."
+  description: "One version a Spring Boot release's BOM pins, identified by `id` (the BOM and the managed coordinates). Pin the BOM by its coordinates: (:BootBom {coordinates:'org.springframework.boot:spring-boot-dependencies:3.5.6'})-[:PINS]->."
   virtualJoins:
-    - { anchorLabel: BootBom, relationship: PINS, keyField: coordinates, recordKeyField: anchorKey, producer: bootManaged }
+    - { anchorLabel: BootBom, relationship: PINS, keyField: coordinates, recordKeyField: anchorKey, producer: bootManaged,
+        description: "Every version one Spring Boot release's BOM (spring-boot-dependencies) manages, read from the POM: pin the BOM by its full coordinates, version included. Compare with what a project resolves to find its overrides." }
   properties:
     id: { identity: true, description: "BOM and coordinates." }
     coordinates: "groupId:artifactId:version."
@@ -122,27 +156,30 @@
 - name: BootJar
   visibility: internal
   userAnchor: false
-  description: "A Spring Boot artifact of one release, downloaded so its jar can be read. Pin it by coordinates — (:BootArtifact {coordinates:'org.springframework.boot:spring-boot-autoconfigure:3.5.6'})-[:IS]->(b:BootJar) — or reach every jar a release pins from its BOM."
+  description: "One Spring Boot artifact of one release, identified by its coordinates (`id`), downloaded so its jar can be read. Pin it by coordinates — (:BootArtifact {coordinates:'org.springframework.boot:spring-boot-autoconfigure:3.5.6'})-[:IS]->(b:BootJar) — or reach every jar a release pins from its BOM."
   virtualJoins:
-    - { anchorLabel: BootArtifact, relationship: IS, keyField: coordinates, recordKeyField: anchorKey, producer: bootArtifact }
+    - { anchorLabel: BootArtifact, relationship: IS, keyField: coordinates, recordKeyField: anchorKey, producer: bootArtifact,
+        description: "The one jar for exact groupId:artifactId:version coordinates, downloaded from the operator's Maven repositories into the world's repository the first time. Then DOCUMENTS for the properties that version binds." }
     - { anchorLabel: BootManagedVersion, relationship: IS, keyField: coordinates, recordKeyField: anchorKey, producer: bootArtifact,
         description: "(:BootBom {coordinates})-[:PINS]->(v:BootManagedVersion)-[:IS]->(b:BootJar): a release's own Spring Boot jars, downloaded" }
   properties:
     id: { identity: true, description: "Coordinates." }
     coordinates: "groupId:artifactId:version."
-    version: "Version."
+    version: "The Spring Boot release the jar belongs to, e.g. 3.5.6."
     jarPath: "The jar, in the world's repository."
 
 - name: RuntimeCondition
   visibility: internal
   userAnchor: false
-  description: "A condition Spring evaluated for a configuration in a running app (/actuator/conditions), with Spring's own message. A configuration that did not apply has configurationMatched false; its notMatched rows say why. Anchor: (:RunningApp {actuator: <the endpoint's JSON, or its URL>})-[:EVALUATED]->."
+  description: "One condition Spring evaluated for a configuration in a running app (/actuator/conditions), identified by `key` (context, configuration, outcome and index), with Spring's own message. A configuration that did not apply has configurationMatched false; its notMatched rows say why. Anchor: (:RunningApp {actuator: <the endpoint's JSON, or its URL>})-[:EVALUATED]->."
   virtualJoins:
-    - { anchorLabel: RunningApp, relationship: EVALUATED, keyField: actuator, recordKeyField: anchorKey, producer: runtimeConditions }
+    - { anchorLabel: RunningApp, relationship: EVALUATED, keyField: actuator, recordKeyField: anchorKey, producer: runtimeConditions,
+        description: "Every condition in one /actuator/conditions report, given as its JSON (or its URL where the operator allows private addresses); nothing is cached beyond the query. Answers 'why was this bean or auto-configuration not created': filter configurationMatched = false and read message." }
   properties:
     key: { identity: true, description: "Context, configuration, outcome and index." }
     configuration: "The configuration, e.g. DataSourceAutoConfiguration or X#beanMethod."
-    configurationClass: "The class."
+    # P2 (money or measure) is a false positive: the audit's heuristic reads "ratio" inside "configuration".
+    configurationClass: "The fully qualified class of the configuration, without any #beanMethod suffix."
     beanMethod: "The @Bean method, for a bean method's conditions."
     condition: "The condition, e.g. OnClassCondition."
     message: "Spring's own explanation."
@@ -152,13 +189,14 @@
 - name: RuntimeBean
   visibility: internal
   userAnchor: false
-  description: "A bean in a running app (/actuator/beans): type, the class a proxy wraps, scope, where it was defined, what it depends on. Anchor: (:RunningApp {actuator})-[:HAS_BEAN]->."
+  description: "One bean in a running app (/actuator/beans), identified by `key` (context and bean name): type, the class a proxy wraps, scope, where it was defined, what it depends on. Anchor: (:RunningApp {actuator})-[:HAS_BEAN]->."
   virtualJoins:
-    - { anchorLabel: RunningApp, relationship: HAS_BEAN, keyField: actuator, recordKeyField: anchorKey, producer: runtimeBeans }
+    - { anchorLabel: RunningApp, relationship: HAS_BEAN, keyField: actuator, recordKeyField: anchorKey, producer: runtimeBeans,
+        description: "Every bean in one /actuator/beans report, across its contexts: what the app actually created, which may differ from what the source declares (Beans view)." }
   properties:
     key: { identity: true, description: "Context and bean name." }
     name: "Bean name."
-    type: "Its type."
+    type: "The bean's type as /actuator/beans reports it, fully qualified, e.g. `com.example.OrderService` or a proxy class like `jdk.proxy2.$Proxy87`; open-ended."
     targetType: "The class it is, behind a CGLIB proxy."
     simpleType: "Simple name of targetType."
     scope: "singleton, prototype, …"
@@ -168,13 +206,14 @@
 - name: RuntimeSetting
   visibility: internal
   userAnchor: false
-  description: "A property in a running app's environment (/actuator/env), per property source in precedence order; `effective` marks the source whose value Spring uses. Anchor: (:RunningApp {actuator})-[:HAS_SETTING]->."
+  description: "One property in a running app's environment (/actuator/env), identified by `key` (source index and name), one row per property source in precedence order; `effective` marks the source whose value Spring uses. Anchor: (:RunningApp {actuator})-[:HAS_SETTING]->."
   virtualJoins:
-    - { anchorLabel: RunningApp, relationship: HAS_SETTING, keyField: actuator, recordKeyField: anchorKey, producer: runtimeEnvironment }
+    - { anchorLabel: RunningApp, relationship: HAS_SETTING, keyField: actuator, recordKeyField: anchorKey, producer: runtimeEnvironment,
+        description: "Every property in every property source of one /actuator/env report, in precedence order; a property set in two sources has two rows. Filter effective = true for the value Spring uses." }
   properties:
     key: { identity: true, description: "Source index and name." }
     name: "Property name."
-    value: "Its value ('******' when masked)."
+    value: "The value as its source writes it, a string in the property's own form (a duration '30s', a size in MB); '******' when the app masks it."
     source: "The property source."
     origin: "Where in it, e.g. 'class path resource [application.yml] - 3:9'."
     effective: { type: boolean, description: "The value Spring uses." }
@@ -183,9 +222,10 @@
 - name: RuntimeMapping
   visibility: internal
   userAnchor: false
-  description: "A request mapping in a running app (/actuator/mappings) and the handler method it reaches. Anchor: (:RunningApp {actuator})-[:MAPS]->."
+  description: "One request mapping in a running app (/actuator/mappings), identified by `key` (context, dispatcher and index), and the handler method it reaches. Anchor: (:RunningApp {actuator})-[:MAPS]->."
   virtualJoins:
-    - { anchorLabel: RunningApp, relationship: MAPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeMappings }
+    - { anchorLabel: RunningApp, relationship: MAPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeMappings,
+        description: "Every request mapping in one /actuator/mappings report and the handler it reaches: what the running app serves, as against the endpoints the source declares (Endpoints view)." }
   properties:
     key: { identity: true, description: "Context, dispatcher and index." }
     patterns: { cardinality: LIST, description: "URL patterns." }
@@ -196,37 +236,39 @@
 - name: RuntimeComponent
   visibility: internal
   userAnchor: false
-  description: "A component of what actually shipped (/actuator/sbom/application), as Maven coordinates — so it reaches HAS_ADVISORY like a project dependency. Anchor: (:RunningApp {actuator})-[:SHIPS]->."
+  description: "One component of what actually shipped (/actuator/sbom/application), identified by its purl `key`, as Maven coordinates — so it reaches HAS_ADVISORY like a project dependency. Anchor: (:RunningApp {actuator})-[:SHIPS]->."
   virtualJoins:
-    - { anchorLabel: RunningApp, relationship: SHIPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeComponents }
+    - { anchorLabel: RunningApp, relationship: SHIPS, keyField: actuator, recordKeyField: anchorKey, producer: runtimeComponents,
+        description: "Every component in one /actuator/sbom/application report: what is in the running artifact, which can differ from what the build resolves. Then HAS_ADVISORY for what is vulnerable in production." }
   properties:
-    key: { identity: true, description: "purl." }
+    key: { identity: true, description: "The component's package URL (purl), e.g. pkg:maven/org.springframework/spring-core@6.2.8." }
     coordinates: "groupId:artifactId:version."
-    licenses: { cardinality: LIST, description: "Licences." }
+    licenses: { cardinality: LIST, description: "The licence ids the app's SBOM records for the component (SPDX where it uses SPDX); empty when it records none." }
     isApplication: { type: boolean, description: "The application itself." }
 
 - name: PublishedVersion
   visibility: internal
   userAnchor: false
-  description: "A version of an artifact the repositories this appliance searches (Maven Central unless the operator configured others) publish. Pin the artifact by groupId:artifactId: (:PublishedArtifact {ga:'org.springframework:spring-core'})-[:PUBLISHED]->(v:PublishedVersion). A fix that is not here is a commercial-only release."
+  description: "One version of an artifact, identified by its coordinates (`id`), that the repositories this appliance searches (Maven Central unless the operator configured others) publish. Pin the artifact by groupId:artifactId: (:PublishedArtifact {ga:'org.springframework:spring-core'})-[:PUBLISHED]->(v:PublishedVersion). A fix that is not here is a commercial-only release."
   virtualJoins:
-    - { anchorLabel: PublishedArtifact, relationship: PUBLISHED, keyField: ga, recordKeyField: anchorKey, producer: publishedVersions, maxFanoutTotal: 60000, maxAnchors: 3000 }
+    - { anchorLabel: PublishedArtifact, relationship: PUBLISHED, keyField: ga, recordKeyField: anchorKey, producer: publishedVersions, maxFanoutTotal: 60000, maxAnchors: 3000,
+        description: "Every version the configured Maven repositories publish for one groupId:artifactId, read from its maven-metadata.xml: one read per artifact. Answers 'can this fix be downloaded' and 'what is the newest version' (latest = true)." }
   properties:
     id: { identity: true, description: "Coordinates." }
-    version: "The version."
-    latest: { type: boolean, description: "The highest published." }
+    version: "The version string alone, e.g. 6.2.18, as the repository's metadata lists it."
+    latest: { type: boolean, description: "True on the highest version the repositories publish for the artifact; false on every other." }
 
 - name: SpringRule
   userAnchor: false
-  description: "A rule of the realm's catalogue (reference/rules.yml): code Spring removed, deprecated or replaced — what to match (`kind`, `pattern`), how bad, from which Spring Boot version it breaks (`breaksIn`), what to write instead, the OpenRewrite recipe that does it, and where Spring documents it."
+  description: "One rule of the realm's catalogue (reference/rules.yml), identified by `ruleId`: code Spring removed, deprecated or replaced — what to match (`kind`, `pattern`), how bad, from which Spring Boot version it breaks (`breaksIn`), what to write instead, the OpenRewrite recipe that does it, and where Spring documents it."
   properties:
-    ruleId: { identity: true, description: "The rule." }
-    kind: "import, extends, annotation, field-annotation or file."
+    ruleId: { identity: true, description: "The rule's short stable name, e.g. jakarta-persistence; a finding's id is built from it." }
+    kind: { values: [import, extends, annotation, field-annotation, file], description: "What the pattern matches: an import prefix, a supertype, an annotation, an annotated field, or a file." }
     pattern: "An import prefix, a supertype's suffix, an annotation's name, or a file name."
     excludes: { cardinality: LIST, description: "Import prefixes the rule does not match." }
     appliesTo: "main to skip test sources; absent for all."
     severity: "critical, high, medium, low or info."
-    category: "upgrade-blocker, design, testing, modernize, …"
+    category: "upgrade-blocker, design, testing or modernize in the shipped catalogue; a rule someone adds may name another."
     breaksIn: "The Spring Boot version from which the code no longer compiles or runs; empty for advice."
     title: "What it is."
     detail: "Why it matters."
@@ -238,11 +280,11 @@
 - name: SpringTriage
   description: "A decision about one finding in a project's debt inbox: done, snoozed, or won't fix, with a note. `findingId` is the finding's id as the DebtInbox view gives it."
   properties:
-    findingId: { identity: true, description: "The finding's id." }
+    findingId: { identity: true, description: "The id the Spring Stack page's debt inbox gives the finding, e.g. config:<path>:<line>:<property>." }
     project: "The project key the finding was raised for."
-    status: "done, snoozed or wontfix."
+    status: "done, snoozed, wontfix, or reopened (a decision taken back that could not be deleted)."
     title: "The finding's title when it was decided, so the decision reads on its own."
-    note: "Why."
+    note: "The reason given for the decision, in the person's words; asked for on won't fix, often empty otherwise."
 
 # The projects you have analyzed, so the page can list yours first. Only the key and what the last
 # read found are kept; nothing of the project's code is.
@@ -265,11 +307,12 @@
   parents: [SourceDeclaration]
   visibility: internal
   userAnchor: false
-  description: "A class, object, interface, function, method or field a project declares in Java, Kotlin or Scala, with its annotations by name (`annotations`) and as written (`annotationText`). Reach it from (:JavaProject {key})-[:DECLARES_SOURCE]->."
+  description: "One class, object, interface, function, method or field a project declares in Java, Kotlin or Scala, identified by `id` (file, kind, name and first line), with its annotations by name (`annotations`) and as written (`annotationText`). Reach it from (:JavaProject {key})-[:DECLARES_SOURCE]->."
   virtualJoins:
     - { anchorLabel: JavaProject, relationship: DECLARES_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springDeclarations, maxFanoutTotal: 500000,
         description: "(:JavaProject {key:$project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)" }
   properties:
+    id: { identity: true, description: "The file's id, `#`, the kind, name and first line." }
     path: "File path, relative to the project."
     language: "java, kotlin or scala."
     line: { type: int, description: "Line it is on." }
@@ -280,11 +323,12 @@
   parents: [SourceImport]
   visibility: internal
   userAnchor: false
-  description: "One import in a project's Java, Kotlin or Scala source, as the file writes it. Reach it from (:JavaProject {key})-[:IMPORTS_SOURCE]->."
+  description: "One import in a project's Java, Kotlin or Scala source, as the file writes it, identified by `id` (file, line and column). Reach it from (:JavaProject {key})-[:IMPORTS_SOURCE]->."
   virtualJoins:
     - { anchorLabel: JavaProject, relationship: IMPORTS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springImports, maxFanoutTotal: 500000,
         description: "(:JavaProject {key:$project})-[:IMPORTS_SOURCE]->(i:SpringImport)" }
   properties:
+    id: { identity: true, description: "The file's id, `#import@`, the line and column." }
     path: "File path, relative to the project."
     language: "java, kotlin or scala."
     line: { type: int, description: "Line it is on." }
@@ -295,11 +339,12 @@
   parents: [CallSite]
   visibility: internal
   userAnchor: false
-  description: "One call in a project's Kotlin source, build files included: what a Gradle Kotlin DSL build declares (plugins, dependencies) is read from these. Reach it from (:JavaProject {key})-[:BUILD_CALLS]->."
+  description: "One call in a project's Kotlin source, build files included, identified by `id` (file, line and column): what a Gradle Kotlin DSL build declares (plugins, dependencies) is read from these. Reach it from (:JavaProject {key})-[:BUILD_CALLS]->."
   virtualJoins:
     - { anchorLabel: JavaProject, relationship: BUILD_CALLS, keyField: key, recordKeyField: anchorKey, producer: springBuildCalls, maxFanoutTotal: 2000000,
         description: "(:JavaProject {key:$project})-[:BUILD_CALLS]->(c:SpringBuildCall)" }
   properties:
+    id: { identity: true, description: "The file's id, `#call@`, and the line and column of the called name." }
     path: "File path, relative to the project."
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
@@ -323,17 +368,17 @@
 - name: SpringIssue
   visibility: internal
   userAnchor: false
-  description: "An issue or pull request on GitHub that matches a search, from GitHub's own search. Limited to issues in the spring-projects organisation. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
+  description: "One issue on GitHub that matches a search, identified by its page `url`, from GitHub's own search. Limited to issues (not pull requests) in the spring-projects organisation, top 15 by relevance; live, cached an hour. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
   virtualJoins:
     - { anchorLabel: Concept, relationship: RELEVANT_TO, keyField: value, recordKeyField: matchedFor, producer: springIssueSearch,
         description: "Issues in the Spring projects' trackers matching free text, by GitHub's own search: (:Concept {value:'the error words'})-[:RELEVANT_TO]->(i:SpringIssue)" }
   properties:
     url: { identity: true, description: "The issue's page." }
     number: { type: int, description: "Its number in its repository." }
-    title: "Its title."
-    state: "open or closed."
-    createdAt: "When it was opened."
-    closedAt: "When it was closed, if it was."
+    title: "The issue's title as its author wrote it."
+    state: { values: [open, closed], description: "open or closed, as GitHub reports it." }
+    createdAt: "When it was opened, ISO-8601 UTC date-time (2024-05-01T09:30:00Z), GitHub's clock."
+    closedAt: "When it was closed, ISO-8601 UTC date-time; empty while it is open."
     comments: { type: int, description: "How many comments it has." }
     repositoryUrl: "The API address of its repository; the last two segments are owner and name."
     milestone: "The milestone it is assigned to, usually the release that fixes it."
@@ -342,15 +387,15 @@
 - name: SpringQuestion
   visibility: internal
   userAnchor: false
-  description: "A Stack Overflow question tagged spring-boot that matches a search, by relevance. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
+  description: "One Stack Overflow question tagged spring-boot that matches a search, identified by its page `url`, top 10 by relevance; live, cached an hour. Reach it from (:Concept {value:'words'})-[:RELEVANT_TO]->."
   virtualJoins:
     - { anchorLabel: Concept, relationship: RELEVANT_TO, keyField: value, recordKeyField: matchedFor, producer: springQuestionSearch,
         description: "Stack Overflow questions tagged spring-boot matching free text: (:Concept {value:'the error words'})-[:RELEVANT_TO]->(q:SpringQuestion)" }
   properties:
     url: { identity: true, description: "The question's page." }
-    questionId: { type: int, description: "Its id." }
-    title: "Its title."
-    score: { type: int, description: "Votes." }
+    questionId: { type: int, description: "Stack Overflow's numeric question id, the number in its URL." }
+    title: "The question's title as asked (HTML entities may be escaped)."
+    score: { type: int, description: "Net votes: upvotes minus downvotes; can be negative." }
     answers: { type: int, description: "How many answers it has." }
     answered: { type: boolean, description: "Whether an answer has a positive score or was accepted." }
     views: { type: int, description: "How many times it was viewed." }
@@ -377,11 +422,12 @@
   parents: [CallSite]
   visibility: internal
   userAnchor: false
-  description: "One call in a project's Java, Kotlin or Scala source, matched by name: the method called, what it is called on as written, the member it is in (`enclosing`), file and line. Reach it from (:JavaProject {key})-[:CALLS_SOURCE]->."
+  description: "One call in a project's Java, Kotlin or Scala source, identified by `id` (file, line and column), matched by name: the method called, what it is called on as written, the member it is in (`enclosing`), file and line. Reach it from (:JavaProject {key})-[:CALLS_SOURCE]->."
   virtualJoins:
     - { anchorLabel: JavaProject, relationship: CALLS_SOURCE, keyField: key, recordKeyField: anchorKey, producer: springCalls, maxFanoutTotal: 2000000,
         description: "(:JavaProject {key:$project})-[:CALLS_SOURCE]->(c:SpringCall)" }
   properties:
+    id: { identity: true, description: "The file's id, `#call@`, and the line and column of the called name." }
     path: "File path, relative to the project."
     line: { type: int, description: "Line it is on." }
     url: "The line on the repository's host, when it has a file view."
@@ -398,5 +444,5 @@
     path: "Path within the project."
     title: "Its first heading, or its file name."
     format: "md, markdown, adoc, asciidoc or rst."
-    text: "Its text."
+    text: "The document's full text as written in the file (Markdown, AsciiDoc or reST source), up to 512 KB."
     link: "Its page on the repository's host."

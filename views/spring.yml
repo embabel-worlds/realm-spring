@@ -4,13 +4,15 @@
 
 - name: Beans
   description: >-
+    Every bean the project's source declares, with its profiles and conditions.
     Every bean the project's source declares, in Java, Kotlin or Scala: classes annotated
     @Component, @Service, @Repository, @Controller, @RestController, @Configuration,
     @SpringBootApplication or a controller advice, Spring Data repository interfaces, OpenFeign clients (@FeignClient), and @Bean methods — each with the profiles and conditions written on it or on its class,
     and a link to its line. What the source says; a running app's RuntimeBeans says what was
     actually created. Test source is left out.
+    Beans from libraries and auto-configuration are not listed.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
@@ -35,10 +37,12 @@
 
 - name: Profiles
   description: >-
+    Every Spring profile the project uses, and where it is used.
     Every Spring profile the project uses and where: @Profile on classes and @Bean methods,
     application-<profile> files, and YAML documents activated on a profile.
+    A profile activated only at run time (spring.profiles.active from the environment) is not seen.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:HAS_ANNOTATION]->(a:JavaProjectAnnotation {name: 'Profile'})
     UNWIND a.values AS profile
@@ -54,6 +58,7 @@
 
 - name: ConfigurationProblems
   description: >-
+    Settings the project's Spring Boot does not bind, or has deprecated.
     Settings in the project's application*.yml / .properties that the Spring Boot it runs does not
     bind (a typo, or a property from another version), and settings it has deprecated — checked
     against what the project's own Spring Boot jars document. Keys under the project's own
@@ -61,7 +66,7 @@
     cron, a @FeignClient's url), are the project's and are not flagged.
     Also: a value that is not what the property's documented type takes (a boolean, whole number, duration or size), which stops the application starting. A value holding a ${placeholder} is not checked. Downloads the project's Spring Boot jars the first time.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     /*
      * The settings are read first and the jars' documented properties last. Read the other way round the statement
@@ -155,13 +160,14 @@
 
 - name: UpgradeConfiguration
   description: >-
+    Settings the target Spring Boot version removed or renamed, with the new ones.
     Settings in the project that the target Spring Boot version removed or renamed, each with the
     property to use there — read from the target release's own jars, which document every property
     they dropped with its replacement. `target` is a Spring Boot version, e.g. 3.5.16 or 4.1.2.
     Downloads the target's Spring Boot jars the first time.
   params:
-    project: { type: string, description: "Project key." }
-    target: { type: string, description: "Target Spring Boot version, e.g. 3.5.16." }
+    project: { type: string, required: true, description: "Project key." }
+    target: { type: string, required: true, description: "Target Spring Boot version, e.g. 3.5.16." }
   cypher: |
     MATCH (bom:BootBom {coordinates: 'org.springframework.boot:spring-boot-dependencies:' + $target})-[:PINS]->(v:BootManagedVersion)
     WHERE v.groupId = 'org.springframework.boot' AND v.artifactId STARTS WITH 'spring-boot'
@@ -187,11 +193,12 @@
 
 - name: Vulnerabilities
   description: >-
+    Advisories against the exact versions a project resolves, worst first.
     Security advisories affecting the exact versions the project resolves, worst first: the
     dependency, the advisory and its CVE ids, its CVSS score, and the fixed version on your own
     line (same major.minor) when there is one — else the nearest fix above it.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
     WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
@@ -215,11 +222,12 @@
 
 - name: VulnerableDependencies
   description: >-
+    One finding per vulnerable dependency, with the one upgrade that fixes it.
     One finding per vulnerable dependency rather than per advisory: how many advisories affect the
     exact version resolved, the worst CVSS, and the one upgrade on your own line (same major.minor)
     that fixes every advisory that has a fix there — the unit of work a developer actually does.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
     WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
@@ -259,11 +267,12 @@
 
 - name: VersionOverrides
   description: >-
+    Where the build pins a version other than the one Spring Boot's BOM pins.
     Where the project's build pins a different version than the Spring Boot it runs would — a
     `<jackson-bom.version>` property, a hand-written version on a managed dependency — so a
     patch Spring Boot ships for it never arrives. Compared against the Spring Boot release's own BOM.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(boot:ProjectDependency)
     WHERE boot.groupId = 'org.springframework.boot' AND boot.artifactId = 'spring-boot'
@@ -285,9 +294,11 @@
 
 - name: Triage
   description: >-
-    What has been decided about this project's findings: done, snoozed or won't fix, with notes.
+    Decisions taken on this project's findings: done, snoozed, won't fix.
+    Each with the finding's title and the note given.
+    Only findings someone decided on; a finding still open has no row.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (t:SpringTriage {project: $project})
     RETURN t.findingId AS findingId, t.status AS status, t.title AS title, t.note AS note
@@ -295,8 +306,9 @@
 
 - name: MyProjects
   description: >-
-    The projects analyzed on the Spring Stack page, most recently read first, with the Spring Boot
-    version and outcome of the last read.
+    Projects analyzed on the Spring Stack page, most recently read first.
+    With the Spring Boot version and outcome of the last read. Only projects someone analyzed
+    there and has not removed.
   cypher: |
     MATCH (p:SpringProject)
     RETURN p.key AS key, p.name AS name, p.bootVersion AS bootVersion, p.support AS support, p.read AS read,
@@ -305,6 +317,7 @@
 
 - name: BeanWiring
   description: >-
+    Every injection point the project's source declares, and what fills it.
     SELECT THIS for "what does this bean depend on", "what uses OwnerRepository", "which beans
     inject X". Every injection point the project's source declares, in Java, Kotlin or Scala: each
     constructor parameter of a bean class (a Kotlin primary constructor included), each field
@@ -316,7 +329,7 @@
     Filter on `type` for what uses a bean, on `bean` for what a bean needs. Read from declarations
     as written and matched by simple name: `candidates` lists the beans declared in this project that provide the type (the class itself, classes that say they extend or implement it, directly or through one of the project's own interfaces, Spring Data and Feign interfaces, and @Bean methods returning it); `injected` is the one Spring would choose when the source settles it (the only one, the @Primary one, or the one a @Qualifier names) and `resolution` says why, or that it is ambiguous. Beans from libraries and auto-configuration are not seen, so a single candidate here can still meet a library's at run time. Test source is left out.
   params:
-    project: { type: string, description: "Project key." }
+    project: { type: string, required: true, description: "Project key." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'object', 'interface', 'constructor', 'field', 'method']

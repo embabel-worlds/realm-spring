@@ -2,6 +2,7 @@
 
 - name: KnownIssues
   description: >-
+    Issues in the Spring projects' GitHub trackers matching an error's words.
     SELECT THIS for "is this a known bug", "has anyone reported this error", "is there an issue for
     X in Spring Boot". Issues in the Spring projects' own GitHub trackers (the spring-projects
     organisation) that match the words given: an exception message, a class or property name, a
@@ -10,7 +11,7 @@
     most 15. Pass the distinctive words of an error, not a whole stack trace. GitHub allows about
     ten keyless searches a minute; answers are kept for an hour.
   params:
-    words: { type: string, description: "The distinctive words of the error or question, e.g. 'JacksonAutoConfiguration ObjectMapper missing bean'." }
+    words: { type: string, required: true, description: "The distinctive words of the error or question, e.g. 'JacksonAutoConfiguration ObjectMapper missing bean'." }
   cypher: |
     MATCH (s:Concept {value: $words})-[:RELEVANT_TO]->(i:SpringIssue)
     RETURN split(i.repositoryUrl, '/repos/')[1] AS repository, i.number AS number, i.title AS title, i.state AS state,
@@ -24,7 +25,7 @@
     answer count, whether it has an accepted or upvoted answer, views, the year it was asked (old
     answers often describe an earlier Spring Boot), and link. At most 10. Kept for an hour.
   params:
-    words: { type: string, description: "Plain words: the error message's distinctive part, or the question." }
+    words: { type: string, required: true, description: "Plain words: the error message's distinctive part, or the question." }
   cypher: |
     MATCH (s:Concept {value: $words})-[:RELEVANT_TO]->(q:SpringQuestion)
     RETURN q.title AS title, q.score AS votes, q.answers AS answers, q.answered AS answered, q.views AS views,
@@ -33,6 +34,7 @@
 
 - name: SpringDocs
   description: >-
+    Passages of Spring's own documentation closest in meaning to the words.
     SELECT THIS for "what do the Spring docs say about X", "how do I migrate X", "what replaced
     this property". Passages of Spring's own documentation closest in meaning to the words given:
     the Spring Boot 2.0, 3.0 and 4.0 migration guides, the 3.5, 4.0 and 4.1 release notes, the
@@ -41,7 +43,7 @@
     and actuator endpoints. Each with the page it is from, its title, the passage and how close
     it is. A short curated set, not the whole reference manual.
   params:
-    words: { type: string, description: "What you want to know, in words." }
+    words: { type: string, required: true, description: "What you want to know, in words." }
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
     WHERE 'spring-docs' IN h.tags
@@ -50,14 +52,16 @@
 
 - name: Docs
   description: >-
+    Documentation passages closest in meaning to the words given.
     SELECT THIS for "what do the docs say about X" when the answer may be in Spring's documentation,
     in the project's own documents, or in what the team has added. Passages closest in meaning to
     the words given, from three places: Spring's documentation (the reference manuals for Spring
     Boot, Framework and Security, the migration guides and release notes); the project's own
     Markdown and AsciiDoc files; and documents someone added on the Spring page for this project.
     Each with where it is from, the page, its title, the passage and how close it is.
+    The ten closest passages only, not an exhaustive search.
   params:
-    words: { type: string, description: "What you want to know, in words." }
+    words: { type: string, required: true, description: "What you want to know, in words." }
     project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it. Empty searches Spring's documentation only." }
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)
@@ -76,7 +80,7 @@
     relies on by its number ([1], [2]); with the passages it was given, in that order. It answers
     only from those passages and says so when they do not cover the question. One model call.
   params:
-    words: { type: string, description: "The question, in words." }
+    words: { type: string, required: true, description: "The question, in words." }
     project: { type: string, default: "", description: "Project key, to include that project's own documents and what was added for it." }
   cypher: |
     MATCH (c:Concept {value: $words})-[r:RELEVANT_TO]->(h:SpringDocHit)

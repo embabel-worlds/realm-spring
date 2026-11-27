@@ -2,6 +2,10 @@
 # version of an artifact; each advisory's title, CVE ids and CVSS come from deps.dev, and the
 # versions that fix it from OSV. Every call is a GET and keyless; a week's cache for a version
 # (published versions do not change), a day's for an advisory (a fix can be added).
+#
+# `pushdown: []` on all three: each call is a GET for one key named in its path (a version, an
+# advisory id) and the sources take no filter beside it, so a WHERE on the records is applied to the
+# one small response. The key itself is what narrows, through the join.
 - name: versionAdvisories
   kind: remote
   operation: mavenVersion
@@ -12,6 +16,7 @@
   maxKeysPerCall: 1
   batchSafe: false
   project: { advisoryId: id }
+  pushdown: []
   cache: { kind: ttl, seconds: 604800, negativeTtlSeconds: 86400 }
 
 - name: advisoryDetails
@@ -22,6 +27,7 @@
   echoKeyAs: advisoryId
   maxKeysPerCall: 1
   project: { title: title, aliases: aliases, cvss3Score: cvss3Score, url: url }
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 - name: advisoryFixes
@@ -32,4 +38,5 @@
   echoKeyAs: advisoryId
   maxKeysPerCall: 1
   project: { fixed: fixed }
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }

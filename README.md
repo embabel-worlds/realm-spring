@@ -28,6 +28,12 @@ default: every setting in its files with the default it replaces and the change 
 defaults nobody chose, settings that have no effect, and `@Value` settings nothing supplies. Its
 browser test is `node tests/settings.stub.mjs`.
 
+`tests/verify.sh` checks the realm against a live appliance: every view answers by name; Spring Boot's
+lines equal spring.io's, one version's advisories and CVSS scores equal deps.dev's, a pinned public
+project's endpoints and Spring Boot version equal its source, the support searches match GitHub's and
+Stack Overflow's own; and a version's advisories, read twice, cost nothing the second time. Every source
+is keyless: `APPLIANCE=http://127.0.0.1:8080 AUTH=user:pass sh tests/verify.sh`.
+
 Requires `realm-java-project`, and an Embabel appliance with the `maven`, `source`, `jar` and `actuator`
 producer kinds. Support dates from spring.io and endoflife.date; advisories from deps.dev and OSV.
 

@@ -1,6 +1,7 @@
 # How long a Spring line is supported, from Spring's own site (open-source and commercial end
 # dates), and which Java each Spring Boot line supports, from endoflife.date. A day's cache:
-# these change when a line is released or ends.
+# these change when a line is released or ends. Both sources answer one product per call with every
+# line in it and take no filter, hence `pushdown: []`.
 - name: springGenerations
   kind: remote
   operation: projectGenerations
@@ -9,6 +10,7 @@
   echoKeyAs: slug
   maxKeysPerCall: 1
   project: { name: name, initialReleaseDate: initialReleaseDate, ossSupportEndDate: ossSupportEndDate, commercialSupportEndDate: commercialSupportEndDate }
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 - name: supportCycles
@@ -19,11 +21,14 @@
   echoKeyAs: slug
   maxKeysPerCall: 1
   project: { cycle: cycle, releaseDate: releaseDate, eol: eol, extendedSupport: extendedSupport, latest: latest, supportedJavaVersions: supportedJavaVersions }
+  pushdown: []
   cache: { kind: ttl, seconds: 86400, negativeTtlSeconds: 3600 }
 
 # SUPPORT. An error message or a question, looked up where Spring developers already asked it: the
 # Spring projects' issue trackers and Stack Overflow. Each is the source's own search, run live for
-# the words given; nothing is ingested.
+# the words given; nothing is ingested. Both are keyless and rate-limited by address (GitHub's
+# search allows 10 unauthenticated calls a minute), so a search is kept an hour, an empty one too:
+# the same error pasted twice is asked once.
 - name: springIssueSearch
   kind: remote-search
   operation: searchIssues
@@ -42,6 +47,7 @@
     comments: "r.comments"
     repositoryUrl: "r.repository_url"
     milestone: "r.milestone.title"
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
 
 - name: springQuestionSearch
   kind: remote-search
@@ -61,6 +67,7 @@
     views: "r.view_count"
     createdAt: "r.creation_date"
     lastActivityAt: "r.last_activity_date"
+  cache: { kind: ttl, seconds: 3600, negativeTtlSeconds: 3600 }
 
 # Spring's documentation, as indexed by sources.yml: by meaning, and by its words.
 - { name: springDocsVector, kind: vector, index: documents, k: 24, minScore: 0.0 }

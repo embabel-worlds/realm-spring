@@ -5,6 +5,7 @@
 
 - name: Endpoints
   description: >-
+    Every HTTP endpoint the project's source declares, with its handler.
     SELECT THIS for "what endpoints does this service expose", "which method handles GET
     /owners", "where is this route implemented". Every HTTP endpoint the project's main source
     declares with Spring's mapping annotations, in Java, Kotlin or Scala: the HTTP method, the route
@@ -13,7 +14,7 @@
     framework endpoints (the actuator's) that are not here. A path given as a constant rather than
     a string is shown as written.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
@@ -37,6 +38,7 @@
 
 - name: TransactionalMethods
   description: >-
+    Every @Transactional the project's main source declares, with settings.
     SELECT THIS for "which methods run in a transaction", "where are our transaction
     boundaries", "is this method transactional". Every place the project's main source declares
     @Transactional, in Java, Kotlin or Scala: on a method, or on a class (then every public method
@@ -44,8 +46,9 @@
     its file and line. `on` is method or type. What the source declares: whether the transaction
     actually applies (a private method, or a call from inside the same class, gets none) is a
     separate check.
+    Test source is not read.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND 'Transactional' IN d.annotations
@@ -63,6 +66,7 @@
 
 - name: BackgroundWork
   description: >-
+    Scheduled jobs, message listeners, event listeners and async methods.
     SELECT THIS for "what runs on a schedule", "which methods listen to a queue or topic", "what
     runs outside a request". The methods the project's main source gives a job outside a web
     request, in Java, Kotlin or Scala: @Scheduled (with its cron or rate), message listeners
@@ -70,7 +74,7 @@
     with its class, method, file and line, and as `detail` the first value written on it: the
     topic or queue a listener reads, or a schedule's cron expression.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
@@ -85,6 +89,7 @@
 
 - name: OutboundHttp
   description: >-
+    The HTTP clients the project's main source declares: interfaces, Feign.
     SELECT THIS for "what does this service call", "which HTTP clients does it declare", "what
     other services does it depend on". The HTTP clients the project's main source DECLARES, in
     Java, Kotlin or Scala: Spring HTTP interface clients (@HttpExchange on the type, @GetExchange,
@@ -93,7 +98,7 @@
     the path, name or URL as written, file and line. Calls made directly through RestClient,
     WebClient or RestTemplate are not declarations and are not here.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'
@@ -111,14 +116,16 @@
 
 - name: DataModel
   description: >-
+    Entities and Spring Data repositories the project's main source declares.
     SELECT THIS for "what entities does this application persist", "which repositories exist and
     for which entity", "what tables does it map". The persistence model the project's main source
     declares, in Java, Kotlin or Scala: classes annotated @Entity, @Document, @Table,
     @MappedSuperclass or @Embeddable (with the table or collection name when one is written), and
     Spring Data repository interfaces with the entity and id types they are declared for. File
     and line for each.
+    Mappings written in XML (orm.xml) are not read.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/' AND d.kind IN ['class', 'interface', 'object']
@@ -136,6 +143,7 @@
 
 - name: AccessRules
   description: >-
+    Access-control annotations on the project's code, and where security is on.
     SELECT THIS for "which methods are protected and by what rule", "who can call this endpoint",
     "where is security configured". Access control the project's main source declares on code, in
     Java, Kotlin or Scala: @PreAuthorize, @PostAuthorize, @Secured, @RolesAllowed, @PermitAll and
@@ -144,7 +152,7 @@
     SecurityFilterChain (requestMatchers(...).permitAll()) are calls, not declarations, and are
     not here; the classes that hold them are, as 'configuration'.
   params:
-    project: { type: string, description: "Project key: a repository URL, optionally @ref, or a folder." }
+    project: { type: string, required: true, description: "Project key: a repository URL, optionally @ref, or a folder." }
   cypher: |
     MATCH (p:JavaProject {key: $project})-[:DECLARES_SOURCE]->(d:SpringDeclaration)
     WHERE NOT d.path CONTAINS 'src/test/'

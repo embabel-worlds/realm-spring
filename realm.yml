@@ -14,8 +14,13 @@ description: |
 
   Not affiliated with or endorsed by the Spring team or Broadcom. Built on realm-java-project,
   which it requires, and the appliance's `actuator`, `jar` and `maven` producer kinds.
-version: 0.1.0
+version: 0.1.1
 maturity: experimental
 realmLabel: Spring
 author: Embabel
 tags: [spring, spring-boot, java, upgrade, cve, configuration]
+# A project's code, build and dependencies come from realm-java-project; the parents this realm's
+# source types extend (SourceDeclaration, SourceImport, CallSite) from realm-code-model.
+requires:
+  java-project: "[0.1.0,1.0.0)"
+  code-model: "[0.1.0,1.0.0)"
