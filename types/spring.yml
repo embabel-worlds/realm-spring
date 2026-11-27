@@ -10,6 +10,8 @@
 #   (:BootBom {coordinates})-[:PINS]->(v:BootManagedVersion)   what a Spring Boot release pins
 #   (:BootArtifact {coordinates})-[:IS]->(b:BootJar)-[:DOCUMENTS]->(p:BootProperty)   a release's own jars
 #   (:RunningApp {actuator:$json})-[:EVALUATED]->(c:RuntimeCondition)   …BEAN, SETTING, BOUND, MAPS, SHIPS
+#   (v:PublishedVersion)-[:LICENSED_UNDER]->(l:MavenLicence)   a version's licences; also from a
+#   BootManagedVersion or a ProjectDependency. `l` is a :Licence (realm-code-model), so name that.
 
 - name: SpringGeneration
   visibility: internal
@@ -215,6 +217,51 @@
     id: { identity: true, description: "Coordinates." }
     version: "The version."
     latest: { type: boolean, description: "The highest published." }
+
+# The shared Licence label's first child (realm-code-model types/artifact.yml): `parents: [Licence]`, so
+# `MATCH (v)-[:LICENSED_UNDER]->(l:Licence)` is answered by this realm for Maven and, once another
+# ecosystem's realm declares its child, by that realm too, with no query changing. The contract's
+# `ecosystem`, `name`, `version` and `licences` are computed per row by the `licencesByVersion`
+# producer (producers/licences.yml). A child inherits properties and the label but not visibility,
+# userAnchor, description or identity, so those are restated.
+- name: MavenLicence
+  parents: [Licence]
+  visibility: internal
+  userAnchor: false
+  description: "The licences one exact Maven artifact version is distributed under, as deps.dev records them: SPDX identifiers. It is a Licence: name :Licence to read every ecosystem, :MavenLicence for Maven alone; `ecosystem` is 'maven', `name` is `groupId:artifactId`, `id` is `name@version`. An EMPTY `licences` means deps.dev records none for that version, not that none applies. Reach it via LICENSED_UNDER from a PublishedVersion (a version Maven Central publishes), a BootManagedVersion (a version a Spring Boot BOM pins) or a ProjectDependency (a version a project resolves). One deps.dev call per version the first time, kept a week — pin the version before walking to it."
+  virtualJoins:
+    - { anchorLabel: PublishedVersion, relationship: LICENSED_UNDER, keyField: id, recordKeyField: coordinates, producer: licencesByVersion, maxAnchors: 3000,
+        description: "(:PublishedArtifact {ga})-[:PUBLISHED]->(v:PublishedVersion {version})-[:LICENSED_UNDER]->(l:MavenLicence): a published version's licences" }
+    - { anchorLabel: BootManagedVersion, relationship: LICENSED_UNDER, keyField: coordinates, recordKeyField: coordinates, producer: licencesByVersion, maxAnchors: 3000,
+        description: "(:BootBom {coordinates})-[:PINS]->(v:BootManagedVersion)-[:LICENSED_UNDER]->(l:MavenLicence): the licences of everything a Spring Boot release pins" }
+    - { anchorLabel: ProjectDependency, relationship: LICENSED_UNDER, keyField: coordinates, recordKeyField: coordinates, producer: licencesByVersion, maxAnchors: 3000,
+        description: "(:JavaProject {key})-[:DEPENDS_ON]->(d:ProjectDependency)-[:LICENSED_UNDER]->(l:MavenLicence): the licences of what a project resolves" }
+  properties:
+    id: { identity: true, description: "`name@version`, e.g. org.springframework:spring-core@6.2.18." }
+    # The Licence contract, computed by the producer.
+    ecosystem: "'maven' on every row."
+    name: "`groupId:artifactId`: the artifact without its version, as the Artifact contract spells a Maven name."
+    version: "The exact version the licences are for."
+    licences: { cardinality: LIST, description: "SPDX identifiers as deps.dev records them, e.g. ['Apache-2.0']; more than one when the artifact is dual-licensed. EMPTY when deps.dev records none, which is not 'none applies'." }
+  # Examples are written against :Licence, the shared label, so the same question is answered by every
+  # ecosystem's realm that joins it; :MavenLicence would read Maven alone.
+  examples:
+    # POSITIVE — pin the artifact AND the version before the LICENSED_UNDER hop: one deps.dev call,
+    # not one per published version.
+    - q: "what licence is spring-core 6.2.18 under"
+      cypher: |
+        MATCH (:PublishedArtifact {ga: 'org.springframework:spring-core'})-[:PUBLISHED]->(v:PublishedVersion {version: '6.2.18'})-[:LICENSED_UNDER]->(l:Licence)
+        RETURN l.name AS artifact, l.version AS version, l.licences AS licences
+    # POSITIVE — the contract's EMPTY: a dependency whose ecosystem records no licence is a question
+    # for the developer, and `size(l.licences) = 0` is how to ask it. Not `l.licences IS NULL`.
+    - q: "which dependencies of my project have no recorded licence"
+      cypher: |
+        MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+        WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
+        MATCH (d)-[:LICENSED_UNDER]->(l:Licence)
+        WHERE size(l.licences) = 0
+        RETURN DISTINCT l.name AS artifact, l.version AS version
+        ORDER BY artifact
 
 - name: SpringRule
   userAnchor: false

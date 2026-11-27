@@ -14,8 +14,8 @@ description: |
 
   Not affiliated with or endorsed by the Spring team or Broadcom. Built on realm-java-project,
   which it requires, and the appliance's `actuator`, `jar` and `maven` producer kinds.
-version: 0.1.0
+version: 0.1.1
 maturity: experimental
 realmLabel: Spring
 author: Embabel
-tags: [spring, spring-boot, java, upgrade, cve, configuration]
+tags: [spring, spring-boot, java, upgrade, cve, configuration, licence]   # licence: brings a child of the shared Licence label

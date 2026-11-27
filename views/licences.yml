@@ -1,0 +1,32 @@
+# Licences, from deps.dev, over the versions this realm already reaches: what a project resolves, and
+# what a Spring Boot release pins. Both read MavenLicence through LICENSED_UNDER (types/spring.yml);
+# a row's `licences` is the SPDX list deps.dev records, and `unrecorded` is true when that list is
+# empty — deps.dev knows no licence for the version, which is not the same as none applying.
+
+- name: ProjectLicences
+  description: >-
+    The licence of every dependency the project resolves, as deps.dev records it (SPDX): artifact,
+    version, the licences, and whether none is recorded — those first, because they are the ones
+    to look into. One deps.dev call per distinct version the first time; kept a week.
+  params:
+    project: { type: string, description: "Project key." }
+  cypher: |
+    MATCH (p:JavaProject {key: $project})-[:DEPENDS_ON]->(d:ProjectDependency)
+    WHERE d.depth > 0 AND size(split(d.coordinates, ':')) = 3
+    WITH DISTINCT d.coordinates AS coordinates, head(collect(d)) AS d
+    MATCH (d)-[:LICENSED_UNDER]->(l:MavenLicence)
+    RETURN l.name AS artifact, l.version AS version, l.licences AS licences, size(l.licences) = 0 AS unrecorded
+    ORDER BY unrecorded DESC, artifact LIMIT 5000
+
+- name: ManagedLicences
+  description: >-
+    The licence of everything a Spring Boot release's BOM pins, as deps.dev records it (SPDX):
+    artifact, version, the licences, and whether none is recorded — those first. `version` is a
+    Spring Boot version, e.g. 3.5.6. A BOM pins ~1,500 versions, so the first call for a release
+    makes that many deps.dev calls; they are kept a week.
+  params:
+    version: { type: string, description: "Spring Boot version, e.g. 3.5.6." }
+  cypher: |
+    MATCH (:BootBom {coordinates: 'org.springframework.boot:spring-boot-dependencies:' + $version})-[:PINS]->(v:BootManagedVersion)-[:LICENSED_UNDER]->(l:MavenLicence)
+    RETURN l.name AS artifact, l.version AS version, l.licences AS licences, size(l.licences) = 0 AS unrecorded
+    ORDER BY unrecorded DESC, artifact LIMIT 5000
